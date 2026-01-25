@@ -165,11 +165,16 @@
                     return;
                 }
 
-                const picker = new google.picker.PickerBuilder()
+                const pickerBuilder = new google.picker.PickerBuilder()
                     .addView(google.picker.ViewId.SPREADSHEETS)
-                    .setOAuthToken(accessToken)
-                    .setDeveloperKey(apiKey)
-                    .setCallback((data) => {
+                    .setOAuthToken(accessToken);
+                
+                // API Key is optional if OAuth token is provided, but recommended
+                if (apiKey && apiKey.trim()) {
+                    pickerBuilder.setDeveloperKey(apiKey);
+                }
+                
+                const picker = pickerBuilder.setCallback((data) => {
                         if (data[google.picker.Response.ACTION] === google.picker.Action.PICKED) {
                             const file = data[google.picker.Response.DOCUMENTS][0];
                             callback(file.id, file.name);
@@ -1823,10 +1828,15 @@
                     clientIdLength: apiFormData.clientId ? apiFormData.clientId.length : 0
                 });
                 
-                // Verify we have actual values before saving
-                if (!apiFormData.apiKey || !apiFormData.clientId) {
-                    alert('Будь ласка, введіть обидва значення: API Key та Client ID');
+                // Verify we have Client ID (required)
+                if (!apiFormData.clientId || !apiFormData.clientId.trim()) {
+                    alert('Будь ласка, введіть Client ID (обов\'язково)');
                     return;
+                }
+                
+                // API Key is optional, but warn if missing
+                if (!apiFormData.apiKey || !apiFormData.apiKey.trim()) {
+                    console.warn('API Key не вказано - це може призвести до помилок при використанні Google Picker');
                 }
                 
                 // Save DIRECTLY to localStorage immediately (synchronously)
@@ -1874,10 +1884,28 @@
             };
 
             const handleConnectGoogle = async () => {
-                if (!apiFormData.apiKey || !apiFormData.clientId) {
+                if (!apiFormData.clientId) {
                     setShowApiConfig(true);
-                    alert('Спочатку налаштуйте API ключ та Client ID в налаштуваннях Google API.');
+                    alert('Спочатку налаштуйте Client ID в налаштуваннях Google API.\n\nAPI Key є опціональним, але рекомендується для кращої роботи.');
                     return;
+                }
+                
+                // API Key is optional but recommended
+                if (!apiFormData.apiKey || !apiFormData.apiKey.trim()) {
+                    const proceed = confirm(
+                        'API Key не налаштовано. Ви можете продовжити без нього, але це може призвести до помилок.\n\n' +
+                        'Рекомендується створити API Key:\n' +
+                        '1. Відкрийте https://console.cloud.google.com/apis/credentials\n' +
+                        '2. Натисніть "Create Credentials" → "API Key"\n' +
+                        '3. Обмежте API Key (рекомендовано):\n' +
+                        '   - Application restrictions: HTTP referrers\n' +
+                        '   - API restrictions: Google Picker API, Google Sheets API\n\n' +
+                        'Продовжити без API Key?'
+                    );
+                    if (!proceed) {
+                        setShowApiConfig(true);
+                        return;
+                    }
                 }
                 
                 // Check if running from file:// protocol
@@ -1915,7 +1943,7 @@
                 // Open Google Drive file picker
                 if (typeof window.openGoogleDrivePicker === 'function') {
                     window.openGoogleDrivePicker(
-                        apiFormData.apiKey,
+                        apiFormData.apiKey || '', // API Key is optional
                         apiFormData.clientId,
                         (spreadsheetId, spreadsheetName) => {
                             // Save spreadsheet ID to settings
@@ -2057,7 +2085,9 @@
                                         </div>
                                         <div>
                                             <div className="form-group" style={{marginBottom: '12px'}}>
-                                                <label className="form-label">API Key</label>
+                                                <label className="form-label">
+                                                    API Key <span style={{color: '#757575', fontSize: '12px'}}>(опціонально, але рекомендується)</span>
+                                                </label>
                                                 <input 
                                                     type="text"
                                                     className="form-control"
@@ -2074,8 +2104,11 @@
                                                             handleApiConfigSubmit(e);
                                                         }
                                                     }}
-                                                    placeholder="Введіть ваш Google API Key"
+                                                    placeholder="Введіть ваш Google API Key (опціонально)"
                                                 />
+                                                <small style={{fontSize: '11px', color: '#757575', display: 'block', marginTop: '4px'}}>
+                                                    Створіть в <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style={{color: '#2196F3'}}>Google Cloud Console</a> → Create Credentials → API Key
+                                                </small>
                                             </div>
                                             <div className="form-group" style={{marginBottom: '12px'}}>
                                                 <label className="form-label">Client ID</label>
@@ -2118,14 +2151,25 @@
                                             </div>
                                         </div>
                                         <p style={{fontSize: '11px', color: '#757575', marginTop: '12px', lineHeight: '1.4'}}>
-                                            Для отримання ключів:<br/>
+                                            <strong>Для отримання ключів:</strong><br/>
                                             1. Створіть проект у <a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a><br/>
-                                            2. Увімкніть Google Sheets API та Google Drive API<br/>
-                                            3. Створіть OAuth 2.0 Client ID (тип: Web application)<br/>
-                                            4. У "Authorized JavaScript origins" додайте:<br/>
-                                               &nbsp;&nbsp;• http://localhost<br/>
-                                               &nbsp;&nbsp;• http://127.0.0.1<br/>
+                                            2. Увімкніть <strong>Google Sheets API</strong> та <strong>Google Drive API</strong><br/>
+                                            3. Створіть <strong>OAuth 2.0 Client ID</strong> (тип: Web application):<br/>
+                                               &nbsp;&nbsp;• Відкрийте <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Credentials</a><br/>
+                                               &nbsp;&nbsp;• Create Credentials → OAuth client ID<br/>
+                                               &nbsp;&nbsp;• У "Authorized JavaScript origins" додайте:<br/>
+                                               &nbsp;&nbsp;&nbsp;&nbsp;- http://localhost<br/>
+                                               &nbsp;&nbsp;&nbsp;&nbsp;- http://127.0.0.1<br/>
+                                               &nbsp;&nbsp;• Скопіюйте <strong>Client ID</strong> (виглядає як: 123456789-abc...apps.googleusercontent.com)<br/>
+                                            4. Створіть <strong>API Key</strong> (опціонально, але рекомендується):<br/>
+                                               &nbsp;&nbsp;• Create Credentials → API Key<br/>
+                                               &nbsp;&nbsp;• Обмежте API Key (рекомендовано):<br/>
+                                               &nbsp;&nbsp;&nbsp;&nbsp;- Application restrictions: HTTP referrers<br/>
+                                               &nbsp;&nbsp;&nbsp;&nbsp;- API restrictions: Google Picker API, Google Sheets API<br/>
                                             5. Додайте ключі вище<br/><br/>
+                                            <strong>З вашого JSON файлу використовуйте:</strong><br/>
+                                            • <code style={{background: '#f0f0f0', padding: '1px 3px', borderRadius: '2px'}}>client_id</code> → вставте в поле <strong>Client ID</strong><br/>
+                                            • <code style={{background: '#f0f0f0', padding: '1px 3px', borderRadius: '2px'}}>client_secret</code> → НЕ потрібен для цього додатку<br/><br/>
                                             <strong>Важливо:</strong> Якщо відкриваєте файл напряму (file://), запустіть локальний сервер:<br/>
                                             <code style={{background: '#f0f0f0', padding: '2px 4px', borderRadius: '3px'}}>python -m http.server 8000</code><br/>
                                             Потім відкрийте http://localhost:8000/rabbit-sales-app.html
