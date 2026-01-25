@@ -434,33 +434,39 @@
                 }
 
                 // Check if headers already exist in Sales sheet
+                // Sales headers now include ID column
+                const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID']];
                 try {
                     const salesResponse = await gapi.client.sheets.spreadsheets.values.get({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A1:F1',
+                        range: 'Sales!A1:G1',
                     });
                     if (salesResponse.result.values && salesResponse.result.values.length > 0) {
-                        // Headers already exist, skip
+                        // Check if ID column exists, if not - update headers
+                        if (salesResponse.result.values[0].length < 7) {
+                            await gapi.client.sheets.spreadsheets.values.update({
+                                spreadsheetId: spreadsheetId,
+                                range: 'Sales!A1:G1',
+                                valueInputOption: 'RAW',
+                                resource: { values: salesHeaders }
+                            });
+                        }
                     } else {
                         // Add headers to Sales sheet
                         await gapi.client.sheets.spreadsheets.values.update({
                             spreadsheetId: spreadsheetId,
-                            range: 'Sales!A1:F1',
+                            range: 'Sales!A1:G1',
                             valueInputOption: 'RAW',
-                            resource: {
-                                values: [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон']]
-                            }
+                            resource: { values: salesHeaders }
                         });
                     }
                 } catch (error) {
                     // Sheet might be empty, add headers
                     await gapi.client.sheets.spreadsheets.values.update({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A1:F1',
+                        range: 'Sales!A1:G1',
                         valueInputOption: 'RAW',
-                        resource: {
-                            values: [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон']]
-                        }
+                        resource: { values: salesHeaders }
                     });
                 }
 
@@ -502,70 +508,231 @@
             }
         }
 
-        // Sync sales data
+        // Sync sales data - proper two-way sync without erasing data
         async function syncSalesData(spreadsheetId, sales, customers) {
             try {
-                // Clear existing data (except headers)
-                await gapi.client.sheets.spreadsheets.values.clear({
-                    spreadsheetId: spreadsheetId,
-                    range: 'Sales!A2:F1000',
+                // Step 1: Read existing data from spreadsheet
+                let existingRows = [];
+                try {
+                    const response = await gapi.client.sheets.spreadsheets.values.get({
+                        spreadsheetId: spreadsheetId,
+                        range: 'Sales!A2:G1000',
+                    });
+                    existingRows = response.result.values || [];
+                } catch (e) {
+                    // No data yet
+                    existingRows = [];
+                }
+
+                // Build a map of existing spreadsheet rows by ID (column G, index 6)
+                const spreadsheetRowsById = {};
+                existingRows.forEach((row, index) => {
+                    const id = row[6]; // ID is in column G
+                    if (id) {
+                        spreadsheetRowsById[id] = { row, rowIndex: index + 2 }; // +2 because row 1 is header, and sheets are 1-indexed
+                    }
                 });
 
-                // Prepare data
-                const values = sales.map(sale => {
+                // Step 2: Build map of local sales by ID
+                const localSalesById = {};
+                sales.forEach(sale => {
+                    if (sale.id) {
+                        localSalesById[sale.id] = sale;
+                    }
+                });
+
+                // Step 3: Find sales to import from spreadsheet (exist in sheet but not locally)
+                const salesToImport = [];
+                existingRows.forEach((row, index) => {
+                    const id = row[6];
+                    if (id && !localSalesById[id]) {
+                        // This sale exists in spreadsheet but not locally - import it
+                        const customerName = row[4] || '';
+                        const customerPhone = row[5] || '';
+                        // Try to find customer by name/phone
+                        let customer = customers.find(c => c.name === customerName || c.phone === customerPhone);
+
+                        salesToImport.push({
+                            id: id,
+                            date: row[0] || '',
+                            weight: parseFloat(row[1]) || 0,
+                            pricePerKg: parseFloat(row[2]) || 0,
+                            totalAmount: parseFloat(row[3]) || 0,
+                            customerId: customer ? customer.id : null,
+                            _fromSpreadsheet: true
+                        });
+                    }
+                });
+
+                // Step 4: Import spreadsheet-only sales to local storage
+                if (salesToImport.length > 0) {
+                    const currentSales = JSON.parse(localStorage.getItem('rabbitSales') || '[]');
+                    const updatedSales = [...currentSales, ...salesToImport];
+                    localStorage.setItem('rabbitSales', JSON.stringify(updatedSales));
+                    console.log(`📥 Imported ${salesToImport.length} sales from spreadsheet`);
+                    // Trigger UI update
+                    window.dispatchEvent(new CustomEvent('salesImported', { detail: salesToImport }));
+                }
+
+                // Step 5: Prepare batch updates for existing rows and new rows to append
+                const rowsToUpdate = [];
+                const rowsToAppend = [];
+
+                sales.forEach(sale => {
                     const customer = customers ? customers.find(c => c.id === sale.customerId) : null;
-                    return [
+                    const rowData = [
                         sale.date || '',
                         sale.weight || '',
                         sale.pricePerKg || '',
                         sale.totalAmount || '',
                         customer ? customer.name : 'Невідомо',
-                        customer ? customer.phone : ''
+                        customer ? customer.phone : '',
+                        sale.id || ''
                     ];
+
+                    if (sale.id && spreadsheetRowsById[sale.id]) {
+                        // Update existing row
+                        const rowIndex = spreadsheetRowsById[sale.id].rowIndex;
+                        rowsToUpdate.push({ range: `Sales!A${rowIndex}:G${rowIndex}`, values: [rowData] });
+                    } else {
+                        // New sale - append to spreadsheet
+                        rowsToAppend.push(rowData);
+                    }
                 });
 
-                if (values.length > 0) {
-                    await gapi.client.sheets.spreadsheets.values.update({
+                // Step 6: Execute batch updates for existing rows
+                if (rowsToUpdate.length > 0) {
+                    await gapi.client.sheets.spreadsheets.values.batchUpdate({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A2',
-                        valueInputOption: 'RAW',
                         resource: {
-                            values: values
+                            valueInputOption: 'RAW',
+                            data: rowsToUpdate
                         }
                     });
+                    console.log(`📝 Updated ${rowsToUpdate.length} existing sales`);
                 }
+
+                // Step 7: Append new rows
+                if (rowsToAppend.length > 0) {
+                    await gapi.client.sheets.spreadsheets.values.append({
+                        spreadsheetId: spreadsheetId,
+                        range: 'Sales!A2:G2',
+                        valueInputOption: 'RAW',
+                        insertDataOption: 'INSERT_ROWS',
+                        resource: {
+                            values: rowsToAppend
+                        }
+                    });
+                    console.log(`➕ Appended ${rowsToAppend.length} new sales`);
+                }
+
+                console.log('✅ Sales sync completed');
             } catch (error) {
                 console.error('Error syncing sales data:', error);
                 throw error;
             }
         }
 
-        // Sync customers data
+        // Sync customers data - proper two-way sync without erasing data
         async function syncCustomersData(spreadsheetId, customers) {
             try {
-                // Clear existing data (except headers)
-                await gapi.client.sheets.spreadsheets.values.clear({
-                    spreadsheetId: spreadsheetId,
-                    range: 'Customers!A2:C1000',
+                // Step 1: Read existing data from spreadsheet
+                let existingRows = [];
+                try {
+                    const response = await gapi.client.sheets.spreadsheets.values.get({
+                        spreadsheetId: spreadsheetId,
+                        range: 'Customers!A2:C1000',
+                    });
+                    existingRows = response.result.values || [];
+                } catch (e) {
+                    existingRows = [];
+                }
+
+                // Build a map of existing spreadsheet rows by ID (column C, index 2)
+                const spreadsheetRowsById = {};
+                existingRows.forEach((row, index) => {
+                    const id = row[2]; // ID is in column C
+                    if (id) {
+                        spreadsheetRowsById[id] = { row, rowIndex: index + 2 };
+                    }
                 });
 
-                // Prepare data
-                const values = customers.map(customer => [
-                    customer.name || '',
-                    customer.phone || '',
-                    customer.id || ''
-                ]);
+                // Build map of local customers by ID
+                const localCustomersById = {};
+                customers.forEach(customer => {
+                    if (customer.id) {
+                        localCustomersById[customer.id] = customer;
+                    }
+                });
 
-                if (values.length > 0) {
-                    await gapi.client.sheets.spreadsheets.values.update({
+                // Find customers to import from spreadsheet
+                const customersToImport = [];
+                existingRows.forEach((row) => {
+                    const id = row[2];
+                    if (id && !localCustomersById[id]) {
+                        customersToImport.push({
+                            id: id,
+                            name: row[0] || '',
+                            phone: row[1] || ''
+                        });
+                    }
+                });
+
+                // Import spreadsheet-only customers to local storage
+                if (customersToImport.length > 0) {
+                    const currentCustomers = JSON.parse(localStorage.getItem('rabbitCustomers') || '[]');
+                    const updatedCustomers = [...currentCustomers, ...customersToImport];
+                    localStorage.setItem('rabbitCustomers', JSON.stringify(updatedCustomers));
+                    console.log(`📥 Imported ${customersToImport.length} customers from spreadsheet`);
+                    window.dispatchEvent(new CustomEvent('customersImported', { detail: customersToImport }));
+                }
+
+                // Prepare batch updates and appends
+                const rowsToUpdate = [];
+                const rowsToAppend = [];
+
+                customers.forEach(customer => {
+                    const rowData = [
+                        customer.name || '',
+                        customer.phone || '',
+                        customer.id || ''
+                    ];
+
+                    if (customer.id && spreadsheetRowsById[customer.id]) {
+                        const rowIndex = spreadsheetRowsById[customer.id].rowIndex;
+                        rowsToUpdate.push({ range: `Customers!A${rowIndex}:C${rowIndex}`, values: [rowData] });
+                    } else {
+                        rowsToAppend.push(rowData);
+                    }
+                });
+
+                // Execute batch updates
+                if (rowsToUpdate.length > 0) {
+                    await gapi.client.sheets.spreadsheets.values.batchUpdate({
                         spreadsheetId: spreadsheetId,
-                        range: 'Customers!A2',
-                        valueInputOption: 'RAW',
                         resource: {
-                            values: values
+                            valueInputOption: 'RAW',
+                            data: rowsToUpdate
                         }
                     });
+                    console.log(`📝 Updated ${rowsToUpdate.length} existing customers`);
                 }
+
+                // Append new rows
+                if (rowsToAppend.length > 0) {
+                    await gapi.client.sheets.spreadsheets.values.append({
+                        spreadsheetId: spreadsheetId,
+                        range: 'Customers!A2:C2',
+                        valueInputOption: 'RAW',
+                        insertDataOption: 'INSERT_ROWS',
+                        resource: {
+                            values: rowsToAppend
+                        }
+                    });
+                    console.log(`➕ Appended ${rowsToAppend.length} new customers`);
+                }
+
+                console.log('✅ Customers sync completed');
             } catch (error) {
                 console.error('Error syncing customers data:', error);
             }
@@ -1244,17 +1411,95 @@
                 }
             }, [sales, customers, settings.isConnected, settings.spreadsheetId]);
 
+            // Auto-sync every 1 minute if network is available
+            useEffect(() => {
+                if (!settings.isConnected || !settings.spreadsheetId) return;
+
+                const syncInterval = setInterval(() => {
+                    // Check network connectivity
+                    if (!navigator.onLine) {
+                        console.log('⏸️ Auto-sync skipped: no network connection');
+                        return;
+                    }
+
+                    // Check if sync function is available
+                    if (typeof window.syncToGoogleSheets !== 'function') {
+                        console.log('⏸️ Auto-sync skipped: sync function not available');
+                        return;
+                    }
+
+                    // Get latest data from localStorage
+                    const currentSales = JSON.parse(localStorage.getItem('rabbitSales') || '[]');
+                    const currentCustomers = JSON.parse(localStorage.getItem('rabbitCustomers') || '[]');
+
+                    console.log('🔄 Auto-sync started...');
+                    window.syncToGoogleSheets(settings.spreadsheetId, currentSales, currentCustomers)
+                        .then(() => console.log('✅ Auto-sync completed'))
+                        .catch(err => console.error('❌ Auto-sync failed:', err));
+                }, 60000); // 1 minute = 60000ms
+
+                return () => clearInterval(syncInterval);
+            }, [settings.isConnected, settings.spreadsheetId]);
+
             useEffect(() => {
                 localStorage.setItem('rabbitSettings', JSON.stringify(settings));
             }, [settings]);
 
             useEffect(() => {
                 localStorage.setItem('googleApiConfig', JSON.stringify(apiConfig));
-                console.log('API config saved to localStorage:', { 
-                    hasApiKey: !!apiConfig.apiKey, 
-                    hasClientId: !!apiConfig.clientId 
+                console.log('API config saved to localStorage:', {
+                    hasApiKey: !!apiConfig.apiKey,
+                    hasClientId: !!apiConfig.clientId
                 });
             }, [apiConfig]);
+
+            // Listen for imported data from spreadsheet sync
+            useEffect(() => {
+                const handleSalesImported = (event) => {
+                    const importedSales = event.detail;
+                    if (!importedSales || importedSales.length === 0) return;
+
+                    setSales(prev => {
+                        const existingIds = new Set(prev.map(s => s.id));
+                        const newSales = importedSales.filter(s => !existingIds.has(s.id));
+                        if (newSales.length > 0) {
+                            // Show alert outside of setState
+                            setTimeout(() => {
+                                setAlert({ message: `Імпортовано ${newSales.length} продажів з таблиці`, type: 'success' });
+                                setTimeout(() => setAlert(null), 3000);
+                            }, 0);
+                            return [...prev, ...newSales];
+                        }
+                        return prev;
+                    });
+                };
+
+                const handleCustomersImported = (event) => {
+                    const importedCustomers = event.detail;
+                    if (!importedCustomers || importedCustomers.length === 0) return;
+
+                    setCustomers(prev => {
+                        const existingIds = new Set(prev.map(c => c.id));
+                        const newCustomers = importedCustomers.filter(c => !existingIds.has(c.id));
+                        if (newCustomers.length > 0) {
+                            setTimeout(() => {
+                                setAlert({ message: `Імпортовано ${newCustomers.length} клієнтів з таблиці`, type: 'success' });
+                                setTimeout(() => setAlert(null), 3000);
+                            }, 0);
+                            return [...prev, ...newCustomers];
+                        }
+                        return prev;
+                    });
+                };
+
+                window.addEventListener('salesImported', handleSalesImported);
+                window.addEventListener('customersImported', handleCustomersImported);
+
+                return () => {
+                    window.removeEventListener('salesImported', handleSalesImported);
+                    window.removeEventListener('customersImported', handleCustomersImported);
+                };
+            }, []);
 
             const showAlert = (message, type = 'success') => {
                 setAlert({ message, type });
@@ -1298,10 +1543,17 @@
                     showAlert('Неможливо видалити клієнта з наявними продажами', 'error');
                     return;
                 }
-                
+
                 if (confirm('Ви впевнені, що хочете видалити цього клієнта?')) {
                     setCustomers(customers.filter(c => c.id !== customerId));
                     showAlert('Клієнта успішно видалено!');
+                }
+            };
+
+            const deleteSale = (saleId) => {
+                if (confirm('Ви впевнені, що хочете видалити цей продаж?')) {
+                    setSales(sales.filter(s => s.id !== saleId));
+                    showAlert('Продаж успішно видалено!');
                 }
             };
 
@@ -1361,7 +1613,7 @@
                     )}
 
                     {currentScreen === 'dashboard' && (
-                        <Dashboard 
+                        <Dashboard
                             sales={getFilteredSales()}
                             allSales={sales}
                             customers={customers}
@@ -1370,6 +1622,7 @@
                             customDateRange={customDateRange}
                             setCustomDateRange={setCustomDateRange}
                             onAddSale={() => setShowSaleModal(true)}
+                            onDeleteSale={deleteSale}
                         />
                     )}
 
@@ -1453,7 +1706,7 @@
         }
 
         // Dashboard Component
-        function Dashboard({ sales, allSales, customers, dateFilter, setDateFilter, customDateRange, setCustomDateRange, onAddSale }) {
+        function Dashboard({ sales, allSales, customers, dateFilter, setDateFilter, customDateRange, setCustomDateRange, onAddSale, onDeleteSale }) {
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
 
@@ -1543,30 +1796,72 @@
                     {todaySales.length > 0 && (
                         <div className="card" style={{marginBottom: '20px'}}>
                             <h2 className="card-title">Замовлення сьогодні</h2>
-                            <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
                                 {Object.entries(todayOrdersByCustomer).map(([customerId, data]) => {
                                     const customer = customers.find(c => c.id === customerId);
                                     return (
                                         <div key={customerId} style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            padding: '12px',
                                             background: '#f5f5f5',
-                                            borderRadius: '8px'
+                                            borderRadius: '8px',
+                                            overflow: 'hidden'
                                         }}>
-                                            <div>
-                                                <div style={{fontWeight: '600', marginBottom: '4px'}}>
-                                                    {customer?.name || 'Невідомий клієнт'}
+                                            {/* Customer header with total */}
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '12px',
+                                                background: '#e8e8e8',
+                                                borderBottom: '1px solid #ddd'
+                                            }}>
+                                                <div>
+                                                    <div style={{fontWeight: '700', fontSize: '16px'}}>
+                                                        {customer?.name || 'Невідомий клієнт'}
+                                                    </div>
+                                                    {customer?.phone && (
+                                                        <a href={`tel:${customer.phone}`} style={{color: '#2196F3', textDecoration: 'none', fontSize: '14px'}}>
+                                                            📞 {customer.phone}
+                                                        </a>
+                                                    )}
                                                 </div>
-                                                {customer?.phone && (
-                                                    <a href={`tel:${customer.phone}`} style={{color: '#2196F3', textDecoration: 'none'}}>
-                                                        📞 {customer.phone}
-                                                    </a>
-                                                )}
+                                                <div style={{fontWeight: '700', fontSize: '20px', color: '#4CAF50'}}>
+                                                    {formatCurrency(data.total)}
+                                                </div>
                                             </div>
-                                            <div style={{fontWeight: '700', fontSize: '18px', color: '#4CAF50'}}>
-                                                {formatCurrency(data.total)}
+                                            {/* Individual sales */}
+                                            <div style={{display: 'flex', flexDirection: 'column'}}>
+                                                {data.sales.map(sale => (
+                                                    <div key={sale.id} style={{
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        padding: '10px 12px',
+                                                        borderBottom: '1px solid #eee'
+                                                    }}>
+                                                        <div style={{fontSize: '14px', color: '#666'}}>
+                                                            {sale.weight} кг × {formatCurrency(sale.pricePerKg)}
+                                                        </div>
+                                                        <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                                            <div style={{fontWeight: '600', color: '#333'}}>
+                                                                {formatCurrency(sale.totalAmount)}
+                                                            </div>
+                                                            <button
+                                                                onClick={() => onDeleteSale(sale.id)}
+                                                                style={{
+                                                                    background: '#f44336',
+                                                                    color: 'white',
+                                                                    border: 'none',
+                                                                    borderRadius: '4px',
+                                                                    padding: '6px 10px',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: '12px'
+                                                                }}
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                     );
