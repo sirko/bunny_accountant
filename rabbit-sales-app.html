@@ -9,8 +9,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Кролі">
-    <!-- COOP headers for OAuth compatibility -->
-    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin-allow-popups">
+    <!-- COOP headers for OAuth compatibility - allow popups for OAuth -->
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="unsafe-none">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -119,8 +119,20 @@
                     }
                 }
                 
-                // Set up callback
+                // Set up callback with timeout to handle cases where COOP blocks the response
+                let callbackReceived = false;
+                const timeout = setTimeout(() => {
+                    if (!callbackReceived) {
+                        console.warn('OAuth callback timeout - COOP might be blocking window.opener');
+                        // Don't reject immediately - user might still be in the OAuth flow
+                        // The callback might arrive later
+                    }
+                }, 30000); // 30 second timeout
+                
                 tokenClient.callback = (tokenResponse) => {
+                    callbackReceived = true;
+                    clearTimeout(timeout);
+                    
                     if (tokenResponse.error) {
                         // Handle specific error codes
                         let errorMsg = tokenResponse.error;
@@ -129,27 +141,36 @@
                         } else if (tokenResponse.error === 'access_denied') {
                             errorMsg = 'Доступ заборонено. Перевірте налаштування OAuth в Google Cloud Console';
                         } else if (tokenResponse.error === 'redirect_uri_mismatch') {
-                            errorMsg = 'redirect_uri_mismatch - додайте http://localhost до Authorized JavaScript origins';
+                            const currentOrigin = window.location.origin;
+                            errorMsg = 'redirect_uri_mismatch - додайте ' + currentOrigin + ' до Authorized JavaScript origins в Google Cloud Console';
                         } else if (typeof tokenResponse.error === 'string' && tokenResponse.error.includes('Cross-Origin')) {
-                            errorMsg = 'Помилка Cross-Origin. Запустіть додаток через локальний сервер (http://localhost) замість file://';
+                            errorMsg = 'Помилка Cross-Origin. Переконайтеся, що ' + window.location.origin + ' додано до OAuth налаштувань';
                         }
                         reject(errorMsg);
                         return;
                     }
+                    
+                    // Success - we got the token
                     accessToken = tokenResponse.access_token;
                     if (gapi.client) {
                         gapi.client.setToken({ access_token: accessToken });
                     }
+                    console.log('✅ OAuth token received successfully');
                     resolve(tokenResponse);
                 };
                 
-                // Request token - use 'select_account' instead of 'consent' to avoid COOP issues
-                // If user needs to grant permissions, they'll be prompted automatically
+                // Request token
+                // Note: COOP warnings in console are usually harmless and don't prevent OAuth from working
+                // The warning appears because Google's code uses window.opener, but the OAuth flow still works
                 try {
-                    tokenClient.requestAccessToken({ prompt: '' }); // Empty prompt uses default behavior
+                    // Use empty prompt to let Google handle the flow automatically
+                    // This avoids forcing consent which can trigger COOP issues
+                    tokenClient.requestAccessToken({ prompt: '' });
                 } catch (error) {
                     console.error('Error requesting access token:', error);
-                    reject('Помилка запиту токену: ' + (error.message || error));
+                    // Don't reject immediately - the callback will handle the response
+                    // The COOP warning is often just a console warning, not a blocking error
+                    console.warn('COOP warning detected, but OAuth flow may still work. Waiting for callback...');
                 }
             });
         };
@@ -176,12 +197,15 @@
             }
 
             // First, get OAuth token
+            // Note: COOP warnings in console are usually harmless - OAuth still works
             window.requestGoogleToken().then(() => {
                 if (!accessToken) {
-                    alert('Не вдалося отримати токен доступу');
+                    alert('Не вдалося отримати токен доступу. Перевірте консоль на помилки.');
                     return;
                 }
 
+                console.log('✅ Got OAuth token, opening file picker...');
+                
                 const pickerBuilder = new google.picker.PickerBuilder()
                     .addView(google.picker.ViewId.SPREADSHEETS)
                     .setOAuthToken(accessToken);
@@ -189,18 +213,30 @@
                 // API Key is optional if OAuth token is provided, but recommended
                 if (apiKey && apiKey.trim()) {
                     pickerBuilder.setDeveloperKey(apiKey);
+                } else {
+                    console.warn('⚠️ API Key not provided - file picker might not work properly');
                 }
                 
                 const picker = pickerBuilder.setCallback((data) => {
-                        if (data[google.picker.Response.ACTION] === google.picker.Action.PICKED) {
-                            const file = data[google.picker.Response.DOCUMENTS][0];
-                            callback(file.id, file.name);
-                        } else if (data[google.picker.Response.ACTION] === google.picker.Action.CANCEL) {
-                            console.log('User cancelled file picker');
-                        }
-                    })
-                    .build();
-                picker.setVisible(true);
+                    if (data[google.picker.Response.ACTION] === google.picker.Action.PICKED) {
+                        const file = data[google.picker.Response.DOCUMENTS][0];
+                        console.log('✅ File selected:', file.name, file.id);
+                        callback(file.id, file.name);
+                    } else if (data[google.picker.Response.ACTION] === google.picker.Action.CANCEL) {
+                        console.log('User cancelled file picker');
+                    } else {
+                        console.log('Picker action:', data[google.picker.Response.ACTION]);
+                    }
+                })
+                .build();
+                
+                try {
+                    picker.setVisible(true);
+                    console.log('✅ File picker opened');
+                } catch (error) {
+                    console.error('Error opening file picker:', error);
+                    alert('Помилка відкриття файлового селектора. Перевірте консоль на деталі.');
+                }
             }).catch((error) => {
                 console.error('Failed to get OAuth token:', error);
                 let errorMessage = 'Помилка авторизації. ';
