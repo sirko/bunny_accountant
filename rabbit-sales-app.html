@@ -210,21 +210,15 @@
                     .addView(google.picker.ViewId.SPREADSHEETS)
                     .setOAuthToken(accessToken);
                 
-                // API Key is optional if OAuth token is provided, but recommended for Google Picker
-                // However, if provided, it must be valid
+                // API Key is optional if OAuth token is provided
+                // We're intentionally NOT using API Key here - OAuth token is sufficient
+                // This avoids "API developer key is invalid" errors
                 if (apiKey && apiKey.trim()) {
-                    // Validate API Key format (Google API keys are usually 39+ characters)
-                    if (apiKey.trim().length < 30) {
-                        console.warn('⚠️ API Key seems too short. Valid Google API keys are usually 39+ characters.');
-                        console.warn('⚠️ Attempting to use picker without API Key (OAuth token should be sufficient)');
-                        // Don't set developer key if it's clearly invalid
-                    } else {
-                        pickerBuilder.setDeveloperKey(apiKey.trim());
-                        console.log('✅ Using API Key for file picker');
-                    }
+                    console.log('ℹ️ API Key is configured but not used - OAuth token is sufficient');
                 } else {
-                    console.warn('⚠️ API Key not provided - trying without it (OAuth token should be sufficient)');
+                    console.log('ℹ️ API Key not provided - OAuth token is sufficient');
                 }
+                // Don't set developer key at all - OAuth token should be sufficient
 
                 const openPicker = (useApiKey) => {
                     const picker = pickerBuilder.setCallback((data) => {
