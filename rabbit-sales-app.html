@@ -207,31 +207,55 @@
                 
                 const errorStr = typeof error === 'string' ? error : (error.message || String(error));
                 
+                const currentOrigin = window.location.origin;
+                
                 if (errorStr.includes('redirect_uri_mismatch') || errorStr.includes('redirect_uri')) {
                     errorMessage += '\n\nПомилка: redirect_uri_mismatch\n\n' +
                         'Для виправлення:\n' +
                         '1. Відкрийте https://console.cloud.google.com/apis/credentials\n' +
                         '2. Виберіть ваш OAuth 2.0 Client ID\n' +
                         '3. У розділі "Authorized JavaScript origins" додайте:\n' +
-                        '   - http://localhost\n' +
-                        '   - http://127.0.0.1\n' +
-                        '4. У розділі "Authorized redirect URIs" додайте:\n' +
-                        '   - http://localhost\n' +
-                        '   - http://127.0.0.1\n\n' +
-                        'ВАЖЛИВО: Запустіть файл через локальний сервер:\n' +
-                        'python -m http.server 8000\n' +
-                        'Потім відкрийте http://localhost:8000/rabbit-sales-app.html';
+                        '   - ' + currentOrigin + '\n';
+                    
+                    if (currentOrigin.includes('github.io')) {
+                        errorMessage += '   - http://localhost (для локального тестування)\n';
+                    } else if (currentOrigin.includes('localhost')) {
+                        errorMessage += '   - https://sirko.github.io (якщо використовуєте GitHub Pages)\n';
+                    }
+                    
+                    errorMessage += '4. У розділі "Authorized redirect URIs" додайте:\n' +
+                        '   - ' + currentOrigin + '\n';
+                    
+                    if (currentOrigin.includes('github.io')) {
+                        errorMessage += '\nПоточний URL: ' + currentOrigin + '\n' +
+                            'Переконайтеся, що цей URL додано до OAuth налаштувань.';
+                    } else {
+                        errorMessage += '\nВАЖЛИВО: Запустіть файл через локальний сервер:\n' +
+                            'python -m http.server 8000\n' +
+                            'Потім відкрийте http://localhost:8000/rabbit-sales-app.html';
+                    }
                 } else if (errorStr.includes('Cross-Origin') || errorStr.includes('COOP') || errorStr.includes('opener')) {
-                    errorMessage += '\n\nПомилка: Cross-Origin-Opener-Policy\n\n' +
-                        'Це означає, що ви відкриваєте файл напряму (file://) або є проблеми з COOP.\n\n' +
-                        'РІШЕННЯ:\n' +
-                        '1. Запустіть локальний сервер:\n' +
-                        '   python -m http.server 8000\n\n' +
-                        '2. Відкрийте http://localhost:8000/rabbit-sales-app.html\n\n' +
-                        '3. Переконайтеся, що в Google Cloud Console додано:\n' +
-                        '   - http://localhost до "Authorized JavaScript origins"';
+                    errorMessage += '\n\nПомилка: Cross-Origin-Opener-Policy\n\n';
+                    
+                    if (window.location.protocol === 'file:') {
+                        errorMessage += 'Це означає, що ви відкриваєте файл напряму (file://).\n\n' +
+                            'РІШЕННЯ:\n' +
+                            '1. Запустіть локальний сервер:\n' +
+                            '   python -m http.server 8000\n\n' +
+                            '2. Відкрийте http://localhost:8000/rabbit-sales-app.html\n\n' +
+                            '3. Переконайтеся, що в Google Cloud Console додано:\n' +
+                            '   - http://localhost до "Authorized JavaScript origins"';
+                    } else {
+                        errorMessage += 'Можлива проблема з COOP налаштуваннями.\n\n' +
+                            'Переконайтеся, що в Google Cloud Console додано:\n' +
+                            '   - ' + currentOrigin + ' до "Authorized JavaScript origins"';
+                    }
                 } else {
                     errorMessage += errorStr || 'Перевірте налаштування API в Google Cloud Console.';
+                    if (currentOrigin) {
+                        errorMessage += '\n\nПоточний URL: ' + currentOrigin + '\n' +
+                            'Переконайтеся, що цей URL додано до OAuth налаштувань.';
+                    }
                 }
                 
                 alert(errorMessage);
@@ -1933,7 +1957,7 @@
                     }
                 }
                 
-                // Check if running from file:// protocol or if there might be COOP issues
+                // Check if running from file:// protocol
                 if (window.location.protocol === 'file:') {
                     alert(
                         '⚠️ ВАЖЛИВО: Ви відкрили файл напряму (file://).\n\n' +
@@ -1952,11 +1976,21 @@
                     return;
                 }
                 
-                // Check for COOP issues even on localhost
-                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                    // This is fine, continue
+                // Check origin and provide appropriate guidance
+                const origin = window.location.origin;
+                const hostname = window.location.hostname;
+                
+                if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                    // Localhost - check if origins are configured
+                    console.log('Running from localhost. Make sure http://localhost is in OAuth origins.');
+                } else if (hostname.includes('github.io') || hostname.includes('github.com')) {
+                    // GitHub Pages
+                    console.log('Running from GitHub Pages:', origin);
+                    console.log('Make sure', origin, 'is added to OAuth Authorized JavaScript origins');
                 } else {
-                    console.warn('Running from non-localhost origin. OAuth might not work properly.');
+                    // Other origin
+                    console.log('Running from:', origin);
+                    console.log('Make sure', origin, 'is added to OAuth Authorized JavaScript origins');
                 }
                 
                 // Ensure Google API is initialized
@@ -2185,8 +2219,9 @@
                                                &nbsp;&nbsp;• Відкрийте <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Credentials</a><br/>
                                                &nbsp;&nbsp;• Create Credentials → OAuth client ID<br/>
                                                &nbsp;&nbsp;• У "Authorized JavaScript origins" додайте:<br/>
-                                               &nbsp;&nbsp;&nbsp;&nbsp;- http://localhost<br/>
-                                               &nbsp;&nbsp;&nbsp;&nbsp;- http://127.0.0.1<br/>
+                                               &nbsp;&nbsp;&nbsp;&nbsp;- <strong>https://sirko.github.io</strong> (для GitHub Pages)<br/>
+                                               &nbsp;&nbsp;&nbsp;&nbsp;- http://localhost (для локального тестування)<br/>
+                                               &nbsp;&nbsp;&nbsp;&nbsp;- http://127.0.0.1 (для локального тестування)<br/>
                                                &nbsp;&nbsp;• Скопіюйте <strong>Client ID</strong> (виглядає як: 123456789-abc...apps.googleusercontent.com)<br/>
                                             4. Створіть <strong>API Key</strong> (опціонально, але рекомендується):<br/>
                                                &nbsp;&nbsp;• Create Credentials → API Key<br/>
@@ -2197,9 +2232,9 @@
                                             <strong>З вашого JSON файлу використовуйте:</strong><br/>
                                             • <code style={{background: '#f0f0f0', padding: '1px 3px', borderRadius: '2px'}}>client_id</code> → вставте в поле <strong>Client ID</strong><br/>
                                             • <code style={{background: '#f0f0f0', padding: '1px 3px', borderRadius: '2px'}}>client_secret</code> → НЕ потрібен для цього додатку<br/><br/>
-                                            <strong>Важливо:</strong> Якщо відкриваєте файл напряму (file://), запустіть локальний сервер:<br/>
-                                            <code style={{background: '#f0f0f0', padding: '2px 4px', borderRadius: '3px'}}>python -m http.server 8000</code><br/>
-                                            Потім відкрийте http://localhost:8000/rabbit-sales-app.html
+                                            <strong>Важливо для GitHub Pages:</strong><br/>
+                                            • Додайте <code style={{background: '#f0f0f0', padding: '1px 3px', borderRadius: '2px'}}>https://sirko.github.io</code> до "Authorized JavaScript origins"<br/>
+                                            • Якщо тестуєте локально, також додайте <code style={{background: '#f0f0f0', padding: '1px 3px', borderRadius: '2px'}}>http://localhost</code>
                                         </p>
                                     </div>
                                 )}
