@@ -18,7 +18,60 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@3.0.0/index.min.js"></script>
+    <script>
+        // Define Google API callback functions before loading the scripts
+        let tokenClient;
+        let gapiInited = false;
+        let gisInited = false;
+        const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
+
+        window.gapiLoaded = function() {
+            if (typeof gapi !== 'undefined' && gapi.load) {
+                gapi.load('client', initializeGapiClient);
+            }
+        };
+
+        async function initializeGapiClient() {
+            const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
+            const apiKey = apiConfig.apiKey;
+            
+            if (!apiKey) {
+                console.warn('Google API key not configured. Please set it in Settings.');
+                return;
+            }
+            
+            try {
+                await gapi.client.init({
+                    apiKey: apiKey,
+                    discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
+                });
+                gapiInited = true;
+            } catch (error) {
+                console.error('Failed to initialize Google API client:', error);
+            }
+        }
+
+        window.gisLoaded = function() {
+            const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
+            const clientId = apiConfig.clientId;
+            
+            if (!clientId) {
+                console.warn('Google Client ID not configured. Please set it in Settings.');
+                return;
+            }
+            
+            try {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: clientId,
+                    scope: SCOPES,
+                    callback: '', // defined later
+                });
+                gisInited = true;
+            } catch (error) {
+                console.error('Failed to initialize Google OAuth client:', error);
+            }
+        };
+    </script>
     <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()" onerror="console.error('Failed to load Google API')"></script>
     <script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()" onerror="console.error('Failed to load Google GSI client')"></script>
     <style>
@@ -518,58 +571,8 @@
             return new Date(date).toLocaleDateString('uk-UA');
         };
 
-        // Google Sheets API functions
-        const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
-        
-        let tokenClient;
-        let gapiInited = false;
-        let gisInited = false;
-
-        // Make functions global so Google scripts can call them
-        window.gapiLoaded = function() {
-            gapi.load('client', initializeGapiClient);
-        };
-
-        async function initializeGapiClient() {
-            const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
-            const apiKey = apiConfig.apiKey;
-            
-            if (!apiKey) {
-                console.warn('Google API key not configured. Please set it in Settings.');
-                return;
-            }
-            
-            try {
-                await gapi.client.init({
-                    apiKey: apiKey,
-                    discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
-                });
-                gapiInited = true;
-            } catch (error) {
-                console.error('Failed to initialize Google API client:', error);
-            }
-        }
-
-        window.gisLoaded = function() {
-            const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
-            const clientId = apiConfig.clientId;
-            
-            if (!clientId) {
-                console.warn('Google Client ID not configured. Please set it in Settings.');
-                return;
-            }
-            
-            try {
-                tokenClient = google.accounts.oauth2.initTokenClient({
-                    client_id: clientId,
-                    scope: SCOPES,
-                    callback: '', // defined later
-                });
-                gisInited = true;
-            } catch (error) {
-                console.error('Failed to initialize Google OAuth client:', error);
-            }
-        }
+        // Google Sheets API functions are defined in the script tag above
+        // Variables are already declared globally: tokenClient, gapiInited, gisInited, SCOPES
 
         // Main App Component
         function App() {
@@ -1320,6 +1323,16 @@
             const [apiFormData, setApiFormData] = useState(apiConfig);
             const [showApiConfig, setShowApiConfig] = useState(false);
 
+            // Sync formData with settings prop when it changes
+            useEffect(() => {
+                setFormData(settings);
+            }, [settings]);
+
+            // Sync apiFormData with apiConfig prop when it changes
+            useEffect(() => {
+                setApiFormData(apiConfig);
+            }, [apiConfig]);
+
             const handleSubmit = (e) => {
                 e.preventDefault();
                 onSave(formData);
@@ -1398,7 +1411,11 @@
                                         <button 
                                             type="button"
                                             className="btn btn-secondary btn-small"
-                                            onClick={() => setShowApiConfig(true)}
+                                            onClick={() => {
+                                                // Ensure form shows current saved values when opened
+                                                setApiFormData(apiConfig);
+                                                setShowApiConfig(true);
+                                            }}
                                             style={{width: '100%'}}
                                         >
                                             ⚙️ Налаштувати API ключі
