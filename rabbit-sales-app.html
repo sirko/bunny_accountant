@@ -9,6 +9,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Кролі">
+    <!-- COOP headers for OAuth compatibility -->
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin-allow-popups">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -103,10 +105,17 @@
                 // Check if we already have a valid token
                 if (gapi.client && gapi.client.getToken()) {
                     const token = gapi.client.getToken();
-                    if (token && !token.error) {
-                        accessToken = token.access_token;
-                        resolve(token);
-                        return;
+                    if (token && !token.error && token.access_token) {
+                        // Check if token is still valid (not expired)
+                        const now = Date.now();
+                        const expiresIn = token.expires_in ? token.expires_in * 1000 : 3600000; // Default 1 hour
+                        const tokenTime = token.issued_at || now;
+                        
+                        if (now - tokenTime < expiresIn) {
+                            accessToken = token.access_token;
+                            resolve(token);
+                            return;
+                        }
                     }
                 }
                 
@@ -121,6 +130,8 @@
                             errorMsg = 'Доступ заборонено. Перевірте налаштування OAuth в Google Cloud Console';
                         } else if (tokenResponse.error === 'redirect_uri_mismatch') {
                             errorMsg = 'redirect_uri_mismatch - додайте http://localhost до Authorized JavaScript origins';
+                        } else if (typeof tokenResponse.error === 'string' && tokenResponse.error.includes('Cross-Origin')) {
+                            errorMsg = 'Помилка Cross-Origin. Запустіть додаток через локальний сервер (http://localhost) замість file://';
                         }
                         reject(errorMsg);
                         return;
@@ -132,8 +143,14 @@
                     resolve(tokenResponse);
                 };
                 
-                // Request token with prompt for consent
-                tokenClient.requestAccessToken({ prompt: 'consent' });
+                // Request token - use 'select_account' instead of 'consent' to avoid COOP issues
+                // If user needs to grant permissions, they'll be prompted automatically
+                try {
+                    tokenClient.requestAccessToken({ prompt: '' }); // Empty prompt uses default behavior
+                } catch (error) {
+                    console.error('Error requesting access token:', error);
+                    reject('Помилка запиту токену: ' + (error.message || error));
+                }
             });
         };
 
@@ -188,7 +205,9 @@
                 console.error('Failed to get OAuth token:', error);
                 let errorMessage = 'Помилка авторизації. ';
                 
-                if (error === 'redirect_uri_mismatch' || (typeof error === 'string' && error.includes('redirect_uri'))) {
+                const errorStr = typeof error === 'string' ? error : (error.message || String(error));
+                
+                if (errorStr.includes('redirect_uri_mismatch') || errorStr.includes('redirect_uri')) {
                     errorMessage += '\n\nПомилка: redirect_uri_mismatch\n\n' +
                         'Для виправлення:\n' +
                         '1. Відкрийте https://console.cloud.google.com/apis/credentials\n' +
@@ -196,17 +215,23 @@
                         '3. У розділі "Authorized JavaScript origins" додайте:\n' +
                         '   - http://localhost\n' +
                         '   - http://127.0.0.1\n' +
-                        '   - file:// (якщо відкриваєте файл напряму)\n' +
                         '4. У розділі "Authorized redirect URIs" додайте:\n' +
                         '   - http://localhost\n' +
                         '   - http://127.0.0.1\n\n' +
-                        'АБО запустіть файл через локальний сервер:\n' +
+                        'ВАЖЛИВО: Запустіть файл через локальний сервер:\n' +
                         'python -m http.server 8000\n' +
                         'Потім відкрийте http://localhost:8000/rabbit-sales-app.html';
-                } else if (typeof error === 'string') {
-                    errorMessage += error;
+                } else if (errorStr.includes('Cross-Origin') || errorStr.includes('COOP') || errorStr.includes('opener')) {
+                    errorMessage += '\n\nПомилка: Cross-Origin-Opener-Policy\n\n' +
+                        'Це означає, що ви відкриваєте файл напряму (file://) або є проблеми з COOP.\n\n' +
+                        'РІШЕННЯ:\n' +
+                        '1. Запустіть локальний сервер:\n' +
+                        '   python -m http.server 8000\n\n' +
+                        '2. Відкрийте http://localhost:8000/rabbit-sales-app.html\n\n' +
+                        '3. Переконайтеся, що в Google Cloud Console додано:\n' +
+                        '   - http://localhost до "Authorized JavaScript origins"';
                 } else {
-                    errorMessage += 'Перевірте налаштування API в Google Cloud Console.';
+                    errorMessage += errorStr || 'Перевірте налаштування API в Google Cloud Console.';
                 }
                 
                 alert(errorMessage);
@@ -1908,28 +1933,30 @@
                     }
                 }
                 
-                // Check if running from file:// protocol
+                // Check if running from file:// protocol or if there might be COOP issues
                 if (window.location.protocol === 'file:') {
-                    const useLocalServer = confirm(
-                        'Ви відкрили файл напряму (file://). Для роботи з Google OAuth потрібно використовувати локальний сервер.\n\n' +
-                        'Натисніть OK, щоб побачити інструкції, або Скасувати, щоб продовжити (може не працювати).'
+                    alert(
+                        '⚠️ ВАЖЛИВО: Ви відкрили файл напряму (file://).\n\n' +
+                        'Google OAuth НЕ працює з file:// протоколом через обмеження безпеки браузера.\n\n' +
+                        'Потрібно запустити локальний сервер:\n\n' +
+                        '1. Відкрийте термінал/командний рядок у папці з файлом\n' +
+                        '2. Запустіть одну з команд:\n' +
+                        '   Python: python -m http.server 8000\n' +
+                        '   Node.js: npx http-server -p 8000\n' +
+                        '   PHP: php -S localhost:8000\n\n' +
+                        '3. Відкрийте в браузері: http://localhost:8000/rabbit-sales-app.html\n\n' +
+                        '4. У Google Cloud Console переконайтеся, що додано:\n' +
+                        '   - http://localhost до "Authorized JavaScript origins"\n' +
+                        '   - http://127.0.0.1 до "Authorized JavaScript origins"'
                     );
-                    
-                    if (useLocalServer) {
-                        alert(
-                            'Інструкція для запуску локального сервера:\n\n' +
-                            '1. Відкрийте термінал/командний рядок у папці з файлом\n' +
-                            '2. Запустіть одну з команд:\n' +
-                            '   Python: python -m http.server 8000\n' +
-                            '   Node.js: npx http-server -p 8000\n' +
-                            '   PHP: php -S localhost:8000\n\n' +
-                            '3. Відкрийте в браузері: http://localhost:8000/rabbit-sales-app.html\n\n' +
-                            '4. У Google Cloud Console додайте до "Authorized JavaScript origins":\n' +
-                            '   - http://localhost\n' +
-                            '   - http://127.0.0.1'
-                        );
-                        return;
-                    }
+                    return;
+                }
+                
+                // Check for COOP issues even on localhost
+                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                    // This is fine, continue
+                } else {
+                    console.warn('Running from non-localhost origin. OAuth might not work properly.');
                 }
                 
                 // Ensure Google API is initialized
@@ -2229,6 +2256,27 @@
 
         // Render the app
         ReactDOM.render(<App />, document.getElementById('root'));
+
+        // Check if running from file:// and warn user
+        if (window.location.protocol === 'file:') {
+            console.warn('⚠️ Running from file:// protocol. Google OAuth will NOT work!');
+            console.warn('Please run from localhost: python -m http.server 8000');
+            
+            // Show warning after page loads
+            window.addEventListener('load', () => {
+                setTimeout(() => {
+                    const warningDiv = document.createElement('div');
+                    warningDiv.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; background: #ff9800; color: white; padding: 12px; text-align: center; z-index: 10000; font-weight: bold;';
+                    warningDiv.innerHTML = '⚠️ ВАЖЛИВО: Google OAuth не працює з file://. Запустіть через локальний сервер (python -m http.server 8000)';
+                    document.body.insertBefore(warningDiv, document.body.firstChild);
+                    
+                    // Auto-hide after 10 seconds
+                    setTimeout(() => {
+                        warningDiv.style.display = 'none';
+                    }, 10000);
+                }, 1000);
+            });
+        }
 
         // Check if credentials exist and try to initialize Google API after a short delay
         // This handles cases where Google API scripts load before or after the app
