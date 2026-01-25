@@ -226,60 +226,80 @@
                     console.warn('⚠️ API Key not provided - trying without it (OAuth token should be sufficient)');
                 }
                 
-                const picker = pickerBuilder.setCallback((data) => {
-                    if (data[google.picker.Response.ACTION] === google.picker.Action.PICKED) {
-                        const file = data[google.picker.Response.DOCUMENTS][0];
-                        console.log('✅ File selected:', file.name, file.id);
-                        callback(file.id, file.name);
-                    } else if (data[google.picker.Response.ACTION] === google.picker.Action.CANCEL) {
-                        console.log('User cancelled file picker');
-                    } else if (data[google.picker.Response.ACTION] === google.picker.Action.LOADED) {
-                        console.log('✅ File picker loaded successfully');
-                    } else {
-                        console.log('Picker action:', data[google.picker.Response.ACTION]);
-                        
-                        // Check for errors in the response
-                        if (data[google.picker.Response.ERROR]) {
-                            const error = data[google.picker.Response.ERROR];
-                            console.error('❌ Picker error:', error);
+                    const picker = pickerBuilder.setCallback((data) => {
+                        if (data[google.picker.Response.ACTION] === google.picker.Action.PICKED) {
+                            const file = data[google.picker.Response.DOCUMENTS][0];
+                            console.log('✅ File selected:', file.name, file.id);
+                            callback(file.id, file.name);
+                        } else if (data[google.picker.Response.ACTION] === google.picker.Action.CANCEL) {
+                            console.log('User cancelled file picker');
+                        } else if (data[google.picker.Response.ACTION] === google.picker.Action.LOADED) {
+                            console.log('✅ File picker loaded successfully');
+                        } else {
+                            console.log('Picker action:', data[google.picker.Response.ACTION]);
                             
-                            if (error === 'developerKeyInvalid' || error.includes('developer key') || error.includes('API key')) {
-                                alert(
-                                    'Помилка: API Key недійсний.\n\n' +
-                                    'Для виправлення:\n' +
-                                    '1. Відкрийте https://console.cloud.google.com/apis/credentials\n' +
-                                    '2. Створіть новий API Key або перевірте існуючий\n' +
-                                    '3. Переконайтеся, що API Key не обмежений або обмежений правильно:\n' +
-                                    '   - Application restrictions: HTTP referrers (додайте ваш домен)\n' +
-                                    '   - API restrictions: Google Picker API, Google Sheets API\n' +
-                                    '4. Оновіть API Key в налаштуваннях додатку\n\n' +
-                                    'АБО видаліть API Key - OAuth token має бути достатнім.'
-                                );
-                            } else {
-                                alert('Помилка файлового селектора: ' + error);
+                            // Check for errors in the response
+                            if (data[google.picker.Response.ERROR]) {
+                                const error = data[google.picker.Response.ERROR];
+                                console.error('❌ Picker error:', error);
+                                
+                                // If API Key error and we were using API Key, try without it
+                                if ((error === 'developerKeyInvalid' || error.includes('developer key') || error.includes('API key')) && useApiKey) {
+                                    console.warn('⚠️ API Key error detected, retrying without API Key...');
+                                    // Retry without API Key
+                                    setTimeout(() => openPicker(false), 500);
+                                    return;
+                                }
+                                
+                                if (error === 'developerKeyInvalid' || error.includes('developer key') || error.includes('API key')) {
+                                    alert(
+                                        'Помилка: API Key недійсний.\n\n' +
+                                        'Рішення:\n' +
+                                        '1. Відкрийте Налаштування → ⚙️ Налаштувати API ключі\n' +
+                                        '2. Видаліть API Key (залиште поле порожнім)\n' +
+                                        '3. Збережіть та спробуйте знову\n\n' +
+                                        'OAuth token має бути достатнім для роботи без API Key.'
+                                    );
+                                } else {
+                                    alert('Помилка файлового селектора: ' + error);
+                                }
                             }
                         }
-                    }
-                })
-                .build();
-                
-                try {
-                    picker.setVisible(true);
-                    console.log('✅ File picker opened');
-                } catch (error) {
-                    console.error('Error opening file picker:', error);
+                    })
+                    .build();
                     
-                    if (error.message && (error.message.includes('developer key') || error.message.includes('API key'))) {
-                        alert(
-                            'Помилка: API Key недійсний.\n\n' +
-                            'Спробуйте:\n' +
-                            '1. Видалити API Key з налаштувань (OAuth token має бути достатнім)\n' +
-                            '2. АБО створити правильний API Key в Google Cloud Console'
-                        );
-                    } else {
-                        alert('Помилка відкриття файлового селектора. Перевірте консоль на деталі.');
+                    try {
+                        picker.setVisible(true);
+                        console.log('✅ File picker opened' + (useApiKey ? ' with API Key' : ' without API Key (OAuth only)'));
+                    } catch (error) {
+                        console.error('Error opening file picker:', error);
+                        
+                        // If API Key error and we were using API Key, try without it
+                        if (error.message && (error.message.includes('developer key') || error.message.includes('API key')) && useApiKey) {
+                            console.warn('⚠️ API Key error detected, retrying without API Key...');
+                            setTimeout(() => openPicker(false), 500);
+                            return;
+                        }
+                        
+                        if (error.message && (error.message.includes('developer key') || error.message.includes('API key'))) {
+                            alert(
+                                'Помилка: API Key недійсний.\n\n' +
+                                'Рішення:\n' +
+                                '1. Відкрийте Налаштування → ⚙️ Налаштувати API ключі\n' +
+                                '2. Видаліть API Key (залиште поле порожнім)\n' +
+                                '3. Збережіть та спробуйте знову\n\n' +
+                                'OAuth token має бути достатнім для роботи без API Key.'
+                            );
+                        } else {
+                            alert('Помилка відкриття файлового селектора. Перевірте консоль на деталі.');
+                        }
                     }
-                }
+                };
+                
+                // Always start WITHOUT API Key - OAuth token should be sufficient
+                // Google Picker works fine with just OAuth token
+                console.log('ℹ️ Opening file picker without API Key (OAuth token should be sufficient)');
+                openPicker(false);
             }).catch((error) => {
                 console.error('Failed to get OAuth token:', error);
                 let errorMessage = 'Помилка авторизації. ';
@@ -595,9 +615,15 @@
                 clientIdLength: apiConfig.clientId ? apiConfig.clientId.length : 0
             });
             
-            if (!apiConfig.apiKey || !apiConfig.clientId) {
-                console.warn('⚠️ API credentials not found in localStorage. Please save them first.');
+            // Only require Client ID - API Key is optional
+            if (!apiConfig.clientId) {
+                console.warn('⚠️ Client ID not found in localStorage. Please save it first.');
                 return;
+            }
+            
+            // Warn if API Key is missing, but continue anyway
+            if (!apiConfig.apiKey || !apiConfig.apiKey.trim()) {
+                console.log('ℹ️ API Key not configured (optional - OAuth token should be sufficient)');
             }
             
             gapiInited = false;
@@ -1970,10 +1996,18 @@
                 // Save DIRECTLY to localStorage immediately (synchronously)
                 // This ensures it's saved even if there's a page refresh or state update delay
                 try {
+                    // API Key is optional - only save it if provided
                     const dataToSave = {
-                        apiKey: apiFormData.apiKey.trim(),
                         clientId: apiFormData.clientId.trim()
                     };
+                    
+                    // Only add API Key if it's provided and not empty
+                    if (apiFormData.apiKey && apiFormData.apiKey.trim()) {
+                        dataToSave.apiKey = apiFormData.apiKey.trim();
+                    } else {
+                        // Explicitly set to empty string to clear any previous value
+                        dataToSave.apiKey = '';
+                    }
                     
                     localStorage.setItem('googleApiConfig', JSON.stringify(dataToSave));
                     console.log('✅ Saved DIRECTLY to localStorage:', dataToSave);
@@ -1981,16 +2015,22 @@
                     // Verify it was saved immediately
                     const saved = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
                     console.log('✅ Verified in localStorage:', { 
-                        hasApiKey: !!saved.apiKey, 
+                        hasApiKey: !!saved.apiKey && saved.apiKey.length > 0, 
                         hasClientId: !!saved.clientId,
                         apiKeyLength: saved.apiKey ? saved.apiKey.length : 0,
                         clientIdLength: saved.clientId ? saved.clientId.length : 0
                     });
                     
-                    if (!saved.apiKey || !saved.clientId) {
-                        console.error('❌ Values not saved correctly to localStorage!');
-                        alert('Помилка збереження. Спробуйте ще раз.');
+                    // Only require Client ID - API Key is optional
+                    if (!saved.clientId) {
+                        console.error('❌ Client ID not saved correctly to localStorage!');
+                        alert('Помилка збереження Client ID. Спробуйте ще раз.');
                         return;
+                    }
+                    
+                    // Log if API Key was intentionally omitted
+                    if (!saved.apiKey || saved.apiKey === '') {
+                        console.log('ℹ️ API Key not saved (optional - OAuth token should be sufficient)');
                     }
                 } catch (error) {
                     console.error('❌ Failed to save to localStorage:', error);
@@ -2409,7 +2449,8 @@
         // This handles cases where Google API scripts load before or after the app
         setTimeout(() => {
             const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
-            if (apiConfig.apiKey && apiConfig.clientId) {
+            // Only require Client ID - API Key is optional
+            if (apiConfig.clientId) {
                 console.log('🔍 Found saved API credentials on page load, attempting to initialize...');
                 if (typeof window.reinitializeGoogleAPI === 'function') {
                     window.reinitializeGoogleAPI();
