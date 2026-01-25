@@ -1461,6 +1461,19 @@
             const totalWeight = sales.reduce((sum, sale) => sum + (Number(sale.weight) || 0), 0);
             const avgPricePerKg = totalWeight > 0 ? totalRevenue / totalWeight : 0;
 
+            // Today's orders
+            const today = new Date().toISOString().split('T')[0];
+            const todaySales = allSales.filter(sale => sale.date === today);
+            const todayOrdersByCustomer = {};
+            todaySales.forEach(sale => {
+                const customerId = sale.customerId || 'unknown';
+                if (!todayOrdersByCustomer[customerId]) {
+                    todayOrdersByCustomer[customerId] = { total: 0, sales: [] };
+                }
+                todayOrdersByCustomer[customerId].total += Number(sale.totalAmount) || 0;
+                todayOrdersByCustomer[customerId].sales.push(sale);
+            });
+
             // Prepare chart data
             const monthlyData = {};
             sales.forEach(sale => {
@@ -1527,6 +1540,41 @@
                         ➕ Додати продаж
                     </button>
 
+                    {todaySales.length > 0 && (
+                        <div className="card" style={{marginBottom: '20px'}}>
+                            <h2 className="card-title">Замовлення сьогодні</h2>
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                                {Object.entries(todayOrdersByCustomer).map(([customerId, data]) => {
+                                    const customer = customers.find(c => c.id === customerId);
+                                    return (
+                                        <div key={customerId} style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '12px',
+                                            background: '#f5f5f5',
+                                            borderRadius: '8px'
+                                        }}>
+                                            <div>
+                                                <div style={{fontWeight: '600', marginBottom: '4px'}}>
+                                                    {customer?.name || 'Невідомий клієнт'}
+                                                </div>
+                                                {customer?.phone && (
+                                                    <a href={`tel:${customer.phone}`} style={{color: '#2196F3', textDecoration: 'none'}}>
+                                                        📞 {customer.phone}
+                                                    </a>
+                                                )}
+                                            </div>
+                                            <div style={{fontWeight: '700', fontSize: '18px', color: '#4CAF50'}}>
+                                                {formatCurrency(data.total)}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="date-filter">
                         <button 
                             className={dateFilter === 'currentYear' ? 'active' : ''}
@@ -1577,7 +1625,7 @@
                             <div className="stat-label">Загальна виручка</div>
                         </div>
                         <div className="stat-card">
-                            <div className="stat-value">{(Number(totalWeight) || 0).toFixed(2)} кг</div>
+                            <div className="stat-value">{(Number(totalWeight) || 0).toFixed(3)} кг</div>
                             <div className="stat-label">Загальна вага</div>
                         </div>
                         <div className="stat-card">
@@ -1613,7 +1661,7 @@
                                         <tr key={month}>
                                             <td>{month}</td>
                                             <td>{formatCurrency(data.revenue)}</td>
-                                            <td>{(Number(data.weight) || 0).toFixed(2)}</td>
+                                            <td>{(Number(data.weight) || 0).toFixed(3)}</td>
                                         </tr>
                                     ))}
                                     {Object.keys(monthlyData).length === 0 && (
@@ -1715,7 +1763,7 @@
                                 <label className="form-label">Вага (кг)</label>
                                 <input 
                                     type="number"
-                                    step="0.1"
+                                    step="0.001"
                                     className="form-control"
                                     value={formData.weight}
                                     onChange={e => setFormData({...formData, weight: e.target.value})}
