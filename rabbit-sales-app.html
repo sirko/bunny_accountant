@@ -1526,6 +1526,7 @@
                 showAlert('Клієнта успішно додано!');
                 setShowCustomerModal(false);
                 setEditingCustomer(null);
+                return newCustomer;
             };
 
             const updateCustomer = (customerData) => {
@@ -1681,7 +1682,7 @@
                             onClose={() => setShowSaleModal(false)}
                             onSave={addSale}
                             onAddCustomer={(customer) => {
-                                addCustomer(customer);
+                                return addCustomer(customer);
                             }}
                         />
                     )}
@@ -2031,6 +2032,9 @@
                     return;
                 }
                 const customer = onAddCustomer(newCustomer);
+                if (customer && customer.id) {
+                    setFormData({...formData, customerId: customer.id});
+                }
                 setShowNewCustomerForm(false);
                 setNewCustomer({ name: '', phone: '' });
             };
