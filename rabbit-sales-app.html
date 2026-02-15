@@ -593,9 +593,9 @@
                     const customer = customers ? customers.find(c => c.id === sale.customerId) : null;
                     const rowData = [
                         sale.date || '',
-                        sale.weight || '',
-                        sale.pricePerKg || '',
-                        sale.totalAmount || '',
+                        Number(sale.weight) || 0,
+                        Number(sale.pricePerKg) || 0,
+                        Number(sale.totalAmount) || 0,
                         customer ? customer.name : 'Невідомо',
                         customer ? customer.phone : '',
                         sale.id || '',
@@ -800,9 +800,9 @@
                     const customer = customers.find(c => c.id === sale.customerId);
                     return [
                         sale.date || '',
-                        sale.weight || '',
-                        sale.pricePerKg || '',
-                        sale.totalAmount || '',
+                        Number(sale.weight) || 0,
+                        Number(sale.pricePerKg) || 0,
+                        Number(sale.totalAmount) || 0,
                         customer ? customer.name : 'Невідомо',
                         customer ? customer.phone : '',
                         sale.id || '',
@@ -1644,10 +1644,14 @@
             };
 
             const addSale = (saleData) => {
+                const weight = parseFloat(saleData.weight) || 0;
+                const pricePerKg = parseFloat(saleData.pricePerKg) || 0;
                 const newSale = {
                     ...saleData,
                     id: Date.now().toString(),
-                    totalAmount: saleData.weight * saleData.pricePerKg,
+                    weight: Math.round(weight * 1000) / 1000,
+                    pricePerKg: Math.round(pricePerKg * 100) / 100,
+                    totalAmount: Math.round(weight * pricePerKg * 100) / 100,
                     status: 'active'
                 };
                 setSales([...sales, newSale]);
