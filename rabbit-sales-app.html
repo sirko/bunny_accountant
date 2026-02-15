@@ -738,6 +738,67 @@
             }
         }
 
+        // Function to clear Sales sheet and rewrite from localStorage
+        window.rewriteSalesSheet = async function() {
+            const settings = JSON.parse(localStorage.getItem('rabbitSettings') || '{}');
+            if (!settings.isConnected || !settings.spreadsheetId) {
+                throw new Error('Спочатку підключіть Google Sheets');
+            }
+
+            if (!gapi.client || !gapi.client.getToken()) {
+                try {
+                    await window.requestGoogleToken();
+                } catch (error) {
+                    throw new Error('Помилка авторизації. Спробуйте перепідключити таблицю.');
+                }
+            }
+
+            const spreadsheetId = settings.spreadsheetId;
+            const sales = JSON.parse(localStorage.getItem('rabbitSales') || '[]');
+            const customers = JSON.parse(localStorage.getItem('rabbitCustomers') || '[]');
+
+            // Clear all data rows (keep header)
+            await gapi.client.sheets.spreadsheets.values.clear({
+                spreadsheetId: spreadsheetId,
+                range: 'Sales!A2:H10000',
+            });
+
+            // Write headers
+            const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID', 'Статус']];
+            await gapi.client.sheets.spreadsheets.values.update({
+                spreadsheetId: spreadsheetId,
+                range: 'Sales!A1:H1',
+                valueInputOption: 'RAW',
+                resource: { values: salesHeaders }
+            });
+
+            // Write all sales from localStorage
+            if (sales.length > 0) {
+                const rows = sales.map(sale => {
+                    const customer = customers.find(c => c.id === sale.customerId);
+                    return [
+                        sale.date || '',
+                        sale.weight || '',
+                        sale.pricePerKg || '',
+                        sale.totalAmount || '',
+                        customer ? customer.name : 'Невідомо',
+                        customer ? customer.phone : '',
+                        sale.id || '',
+                        sale.status || 'active'
+                    ];
+                });
+
+                await gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId: spreadsheetId,
+                    range: `Sales!A2:H${rows.length + 1}`,
+                    valueInputOption: 'RAW',
+                    resource: { values: rows }
+                });
+            }
+
+            console.log(`🔄 Sales sheet rewritten with ${sales.length} records from localStorage`);
+        };
+
         // Function to manually trigger sync
         window.manualSyncToGoogleSheets = async function() {
             const settings = JSON.parse(localStorage.getItem('rabbitSettings') || '{}');
@@ -2561,6 +2622,25 @@
                                                 Відключити
                                             </button>
                                         </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-small"
+                                            onClick={async () => {
+                                                if (confirm('Це очистить таблицю продажів у Google Sheets і перезапише її даними з локального сховища. Продовжити?')) {
+                                                    if (typeof window.rewriteSalesSheet === 'function') {
+                                                        try {
+                                                            await window.rewriteSalesSheet();
+                                                            alert('Таблицю продажів успішно перезаписано!');
+                                                        } catch (error) {
+                                                            alert('Помилка: ' + error.message);
+                                                        }
+                                                    }
+                                                }
+                                            }}
+                                            style={{width: '100%', marginTop: '8px'}}
+                                        >
+                                            🔃 Перезаписати таблицю продажів
+                                        </button>
                                     </div>
                                 )}
                                 
