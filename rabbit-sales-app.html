@@ -1416,40 +1416,6 @@
                 if (savedSettings) setSettings(JSON.parse(savedSettings));
                 if (savedApiConfig) setApiConfig(JSON.parse(savedApiConfig));
 
-                // Initialize sample data if none exists
-                if (!savedCustomers) {
-                    const sampleCustomers = [
-                        { id: '1', name: 'Іван Петренко', phone: '+380501234567' },
-                        { id: '2', name: 'Марія Коваленко', phone: '+380672345678' }
-                    ];
-                    setCustomers(sampleCustomers);
-                    localStorage.setItem('rabbitCustomers', JSON.stringify(sampleCustomers));
-                }
-
-                if (!savedSales) {
-                    const sampleSales = [
-                        {
-                            id: '1',
-                            date: '2025-01-15',
-                            weight: 3.5,
-                            pricePerKg: 150,
-                            totalAmount: 525,
-                            customerId: '1',
-                            status: 'active'
-                        },
-                        {
-                            id: '2',
-                            date: '2025-01-20',
-                            weight: 4.2,
-                            pricePerKg: 160,
-                            totalAmount: 672,
-                            customerId: '2',
-                            status: 'active'
-                        }
-                    ];
-                    setSales(sampleSales);
-                    localStorage.setItem('rabbitSales', JSON.stringify(sampleSales));
-                }
             }, []);
 
             // Save to localStorage when data changes
@@ -1754,6 +1720,24 @@
                                         console.error('❌ reinitializeGoogleAPI function not found!');
                                     }
                                 }, 200);
+                            }}
+                            onResetFromSheet={async () => {
+                                // Clear local sales and customers
+                                localStorage.removeItem('rabbitSales');
+                                localStorage.removeItem('rabbitCustomers');
+                                setSales([]);
+                                setCustomers([]);
+
+                                // Trigger sync to import everything from Google Sheets
+                                if (settings.isConnected && settings.spreadsheetId && typeof window.syncToGoogleSheets === 'function') {
+                                    try {
+                                        await window.syncToGoogleSheets(settings.spreadsheetId, [], []);
+                                        showAlert('Дані завантажено з Google Sheets!');
+                                    } catch (error) {
+                                        console.error('Error importing from Google Sheets:', error);
+                                        showAlert('Помилка завантаження з Google Sheets: ' + error.message, 'error');
+                                    }
+                                }
                             }}
                         />
                     )}
@@ -2386,7 +2370,7 @@
         }
 
         // Settings Component
-        function Settings({ settings, apiConfig, onSave, onSaveApiConfig }) {
+        function Settings({ settings, apiConfig, onSave, onSaveApiConfig, onResetFromSheet }) {
             const [formData, setFormData] = useState(settings);
             const [apiFormData, setApiFormData] = useState(apiConfig);
             const [showApiConfig, setShowApiConfig] = useState(false);
@@ -2847,6 +2831,31 @@
                             </div>
                         </form>
                     </div>
+
+                    {formData.isConnected && formData.spreadsheetId && (
+                        <div className="card" style={{marginTop: '16px'}}>
+                            <h2 className="card-title">🔄 Відновлення даних</h2>
+                            <p style={{fontSize: '13px', color: '#757575', marginBottom: '12px'}}>
+                                Очистити всі локальні дані (продажі та клієнти) і завантажити їх заново з Google Sheets.
+                            </p>
+                            <button
+                                type="button"
+                                className="btn btn-danger"
+                                style={{width: '100%'}}
+                                onClick={async () => {
+                                    if (confirm('⚠️ Це видалить ВСІ локальні дані (продажі та клієнти) і завантажить їх з Google Sheets.\n\nПродовжити?')) {
+                                        try {
+                                            await onResetFromSheet();
+                                        } catch (error) {
+                                            alert('Помилка: ' + error.message);
+                                        }
+                                    }
+                                }}
+                            >
+                                ☁️ Очистити локальні дані і завантажити з Google Sheets
+                            </button>
+                        </div>
+                    )}
                 </div>
             );
         }
