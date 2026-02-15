@@ -389,6 +389,18 @@
             }
         };
 
+        // Get sheet ID by name
+        async function getSheetId(spreadsheetId, sheetName) {
+            try {
+                const spreadsheet = await gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+                const sheet = spreadsheet.result.sheets.find(s => s.properties.title === sheetName);
+                return sheet ? sheet.properties.sheetId : null;
+            } catch (e) {
+                console.error('Error getting sheet ID:', e);
+                return null;
+            }
+        }
+
         // Initialize spreadsheet with headers
         async function initializeSpreadsheet(spreadsheetId) {
             try {
@@ -541,42 +553,39 @@
                     }
                 });
 
-                // Step 3: Find sales to import from spreadsheet (exist in sheet but not locally)
-                const salesToImport = [];
+                // Step 3: Remove rows from spreadsheet that no longer exist locally
+                const rowsToDelete = [];
                 existingRows.forEach((row, index) => {
                     const id = row[6];
                     if (id && !localSalesById[id]) {
-                        // This sale exists in spreadsheet but not locally - import it
-                        const customerName = row[4] || '';
-                        const customerPhone = row[5] || '';
-                        // Try to find customer by name/phone
-                        let customer = customers.find(c => c.name === customerName || c.phone === customerPhone);
-
-                        salesToImport.push({
-                            id: id,
-                            date: row[0] || '',
-                            weight: parseFloat(row[1]) || 0,
-                            pricePerKg: parseFloat(row[2]) || 0,
-                            totalAmount: parseFloat(row[3]) || 0,
-                            customerId: customer ? customer.id : null,
-                            status: row[7] || 'active',
-                            productType: row[8] || '',
-                            _fromSpreadsheet: true
-                        });
+                        rowsToDelete.push(index + 2); // +2: row 1 is header, sheets are 1-indexed
                     }
                 });
 
-                // Step 4: Import spreadsheet-only sales to local storage
-                if (salesToImport.length > 0) {
-                    const currentSales = JSON.parse(localStorage.getItem('rabbitSales') || '[]');
-                    const updatedSales = [...currentSales, ...salesToImport];
-                    localStorage.setItem('rabbitSales', JSON.stringify(updatedSales));
-                    console.log(`📥 Imported ${salesToImport.length} sales from spreadsheet`);
-                    // Trigger UI update
-                    window.dispatchEvent(new CustomEvent('salesImported', { detail: salesToImport }));
+                // Delete rows from bottom to top to preserve indices
+                if (rowsToDelete.length > 0) {
+                    rowsToDelete.sort((a, b) => b - a);
+                    const sheetId = await getSheetId(spreadsheetId, 'Sales');
+                    if (sheetId !== null) {
+                        const requests = rowsToDelete.map(rowIndex => ({
+                            deleteDimension: {
+                                range: {
+                                    sheetId: sheetId,
+                                    dimension: 'ROWS',
+                                    startIndex: rowIndex - 1,
+                                    endIndex: rowIndex
+                                }
+                            }
+                        }));
+                        await gapi.client.sheets.spreadsheets.batchUpdate({
+                            spreadsheetId: spreadsheetId,
+                            resource: { requests }
+                        });
+                        console.log(`🗑️ Deleted ${rowsToDelete.length} sales from spreadsheet`);
+                    }
                 }
 
-                // Step 5: Prepare batch updates for existing rows and new rows to append
+                // Step 4: Prepare batch updates for existing rows and new rows to append
                 const rowsToUpdate = [];
                 const rowsToAppend = [];
 
@@ -669,26 +678,35 @@
                     }
                 });
 
-                // Find customers to import from spreadsheet
-                const customersToImport = [];
-                existingRows.forEach((row) => {
+                // Remove rows from spreadsheet that no longer exist locally
+                const custRowsToDelete = [];
+                existingRows.forEach((row, index) => {
                     const id = row[2];
                     if (id && !localCustomersById[id]) {
-                        customersToImport.push({
-                            id: id,
-                            name: row[0] || '',
-                            phone: row[1] || ''
-                        });
+                        custRowsToDelete.push(index + 2);
                     }
                 });
 
-                // Import spreadsheet-only customers to local storage
-                if (customersToImport.length > 0) {
-                    const currentCustomers = JSON.parse(localStorage.getItem('rabbitCustomers') || '[]');
-                    const updatedCustomers = [...currentCustomers, ...customersToImport];
-                    localStorage.setItem('rabbitCustomers', JSON.stringify(updatedCustomers));
-                    console.log(`📥 Imported ${customersToImport.length} customers from spreadsheet`);
-                    window.dispatchEvent(new CustomEvent('customersImported', { detail: customersToImport }));
+                if (custRowsToDelete.length > 0) {
+                    custRowsToDelete.sort((a, b) => b - a);
+                    const sheetId = await getSheetId(spreadsheetId, 'Customers');
+                    if (sheetId !== null) {
+                        const requests = custRowsToDelete.map(rowIndex => ({
+                            deleteDimension: {
+                                range: {
+                                    sheetId: sheetId,
+                                    dimension: 'ROWS',
+                                    startIndex: rowIndex - 1,
+                                    endIndex: rowIndex
+                                }
+                            }
+                        }));
+                        await gapi.client.sheets.spreadsheets.batchUpdate({
+                            spreadsheetId: spreadsheetId,
+                            resource: { requests }
+                        });
+                        console.log(`🗑️ Deleted ${custRowsToDelete.length} customers from spreadsheet`);
+                    }
                 }
 
                 // Prepare batch updates and appends
