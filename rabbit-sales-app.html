@@ -435,18 +435,18 @@
 
                 // Check if headers already exist in Sales sheet
                 // Sales headers now include ID column
-                const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID', 'Статус']];
+                const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID', 'Статус', 'Тип продукту']];
                 try {
                     const salesResponse = await gapi.client.sheets.spreadsheets.values.get({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A1:H1',
+                        range: 'Sales!A1:I1',
                     });
                     if (salesResponse.result.values && salesResponse.result.values.length > 0) {
-                        // Check if ID column exists, if not - update headers
-                        if (salesResponse.result.values[0].length < 8) {
+                        // Check if all columns exist, if not - update headers
+                        if (salesResponse.result.values[0].length < 9) {
                             await gapi.client.sheets.spreadsheets.values.update({
                                 spreadsheetId: spreadsheetId,
-                                range: 'Sales!A1:H1',
+                                range: 'Sales!A1:I1',
                                 valueInputOption: 'RAW',
                                 resource: { values: salesHeaders }
                             });
@@ -455,7 +455,7 @@
                         // Add headers to Sales sheet
                         await gapi.client.sheets.spreadsheets.values.update({
                             spreadsheetId: spreadsheetId,
-                            range: 'Sales!A1:H1',
+                            range: 'Sales!A1:I1',
                             valueInputOption: 'RAW',
                             resource: { values: salesHeaders }
                         });
@@ -464,7 +464,7 @@
                     // Sheet might be empty, add headers
                     await gapi.client.sheets.spreadsheets.values.update({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A1:H1',
+                        range: 'Sales!A1:I1',
                         valueInputOption: 'RAW',
                         resource: { values: salesHeaders }
                     });
@@ -516,7 +516,7 @@
                 try {
                     const response = await gapi.client.sheets.spreadsheets.values.get({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A2:H1000',
+                        range: 'Sales!A2:I1000',
                     });
                     existingRows = response.result.values || [];
                 } catch (e) {
@@ -560,6 +560,7 @@
                             totalAmount: parseFloat(row[3]) || 0,
                             customerId: customer ? customer.id : null,
                             status: row[7] || 'active',
+                            productType: row[8] || '',
                             _fromSpreadsheet: true
                         });
                     }
@@ -589,13 +590,14 @@
                         customer ? customer.name : 'Невідомо',
                         customer ? customer.phone : '',
                         sale.id || '',
-                        sale.status || 'active'
+                        sale.status || 'active',
+                        sale.productType || ''
                     ];
 
                     if (sale.id && spreadsheetRowsById[sale.id]) {
                         // Update existing row
                         const rowIndex = spreadsheetRowsById[sale.id].rowIndex;
-                        rowsToUpdate.push({ range: `Sales!A${rowIndex}:H${rowIndex}`, values: [rowData] });
+                        rowsToUpdate.push({ range: `Sales!A${rowIndex}:I${rowIndex}`, values: [rowData] });
                     } else {
                         // New sale - append to spreadsheet
                         rowsToAppend.push(rowData);
@@ -762,14 +764,14 @@
             // Clear all data rows (keep header)
             await gapi.client.sheets.spreadsheets.values.clear({
                 spreadsheetId: spreadsheetId,
-                range: 'Sales!A2:H10000',
+                range: 'Sales!A2:I10000',
             });
 
             // Write headers
-            const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID', 'Статус']];
+            const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID', 'Статус', 'Тип продукту']];
             await gapi.client.sheets.spreadsheets.values.update({
                 spreadsheetId: spreadsheetId,
-                range: 'Sales!A1:H1',
+                range: 'Sales!A1:I1',
                 valueInputOption: 'RAW',
                 resource: { values: salesHeaders }
             });
@@ -786,13 +788,14 @@
                         customer ? customer.name : 'Невідомо',
                         customer ? customer.phone : '',
                         sale.id || '',
-                        sale.status || 'active'
+                        sale.status || 'active',
+                        sale.productType || ''
                     ];
                 });
 
                 await gapi.client.sheets.spreadsheets.values.update({
                     spreadsheetId: spreadsheetId,
-                    range: `Sales!A2:H${rows.length + 1}`,
+                    range: `Sales!A2:I${rows.length + 1}`,
                     valueInputOption: 'RAW',
                     resource: { values: rows }
                 });
@@ -1388,6 +1391,12 @@
             const [customers, setCustomers] = useState([]);
             const [settings, setSettings] = useState({
                 defaultPricePerKg: 150,
+                defaultPrices: {
+                    rabbit: 150,
+                    duck: 120,
+                    chicken: 100,
+                    broiler: 90
+                },
                 spreadsheetId: null,
                 spreadsheetName: null,
                 isConnected: false
@@ -1745,7 +1754,7 @@
                     {showSaleModal && (
                         <SaleModal
                             customers={customers}
-                            defaultPrice={settings.defaultPricePerKg}
+                            defaultPrices={settings.defaultPrices || {rabbit: settings.defaultPricePerKg, duck: 120, chicken: 100, broiler: 90}}
                             onClose={() => setShowSaleModal(false)}
                             onSave={addSale}
                             onAddCustomer={(customer) => {
@@ -1925,7 +1934,7 @@
                                                     }}>
                                                         <div style={{fontSize: '14px', color: '#666'}}>
                                                             <span style={{color: '#999', marginRight: '6px'}}>{sale.date}</span>
-                                                            {sale.weight} кг × {formatCurrency(sale.pricePerKg)}
+                                                            {sale.productType && PRODUCT_TYPES[sale.productType] ? PRODUCT_TYPES[sale.productType].label.split(' ')[0] + ' ' : ''}{sale.weight} кг × {formatCurrency(sale.pricePerKg)}
                                                         </div>
                                                         <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
                                                             <div style={{fontWeight: '600', color: '#333'}}>
@@ -2064,6 +2073,7 @@
                                 <thead>
                                     <tr>
                                         <th>Дата</th>
+                                        <th>Тип</th>
                                         <th>Ціна/кг</th>
                                         <th>Клієнт</th>
                                     </tr>
@@ -2074,6 +2084,7 @@
                                         return (
                                             <tr key={sale.id}>
                                                 <td>{formatDate(sale.date)}</td>
+                                                <td>{sale.productType && PRODUCT_TYPES[sale.productType] ? PRODUCT_TYPES[sale.productType].label.split(' ')[0] : '🐰'}</td>
                                                 <td>{formatCurrency(sale.pricePerKg)}</td>
                                                 <td>{customer?.name || 'Невідомо'}</td>
                                             </tr>
@@ -2088,11 +2099,19 @@
         }
 
         // Sale Modal Component
-        function SaleModal({ customers, defaultPrice, onClose, onSave, onAddCustomer }) {
+        const PRODUCT_TYPES = {
+            rabbit: { label: '🐰 Кролятина', key: 'rabbit' },
+            duck: { label: '🦆 Качатина', key: 'duck' },
+            chicken: { label: '🐔 Курятина', key: 'chicken' },
+            broiler: { label: '🐓 Бройлер', key: 'broiler' }
+        };
+
+        function SaleModal({ customers, defaultPrices, onClose, onSave, onAddCustomer }) {
             const [formData, setFormData] = useState({
                 date: new Date().toISOString().split('T')[0],
                 weight: '',
-                pricePerKg: defaultPrice,
+                productType: '',
+                pricePerKg: '',
                 customerId: ''
             });
             const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
@@ -2144,6 +2163,25 @@
                             </div>
 
                             <div className="form-group">
+                                <label className="form-label">Тип продукту</label>
+                                <select
+                                    className="form-control"
+                                    value={formData.productType}
+                                    onChange={e => {
+                                        const type = e.target.value;
+                                        setFormData({...formData, productType: type, pricePerKg: type ? (defaultPrices[type] || 0) : ''});
+                                    }}
+                                    required
+                                >
+                                    <option value="" disabled>Оберіть тип продукту...</option>
+                                    {Object.entries(PRODUCT_TYPES).map(([key, {label}]) => (
+                                        <option key={key} value={key}>{label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {formData.productType && (
+                            <div className="form-group">
                                 <label className="form-label">Вага (кг)</label>
                                 <input
                                     type="number"
@@ -2155,7 +2193,9 @@
                                     min="0"
                                 />
                             </div>
+                            )}
 
+                            {formData.productType && (
                             <div className="form-group">
                                 <label className="form-label">Ціна за кілограм (₴)</label>
                                 <input
@@ -2168,6 +2208,7 @@
                                     min="0"
                                 />
                             </div>
+                            )}
 
                             <div className="form-group">
                                 <label className="form-label">Клієнт</label>
@@ -2590,16 +2631,29 @@
                         <h2 className="card-title">Налаштування</h2>
                         <form onSubmit={handleSubmit}>
                             <div className="form-group">
-                                <label className="form-label">Ціна за кілограм за замовчуванням (₴)</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    className="form-control"
-                                    value={formData.defaultPricePerKg}
-                                    onChange={e => setFormData({...formData, defaultPricePerKg: parseFloat(e.target.value)})}
-                                    required
-                                    min="0"
-                                />
+                                <label className="form-label" style={{marginBottom: '12px', fontWeight: '600'}}>Ціни за кілограм за замовчуванням (₴)</label>
+                                {Object.entries(PRODUCT_TYPES).map(([key, {label}]) => (
+                                    <div key={key} style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px'}}>
+                                        <span style={{minWidth: '120px', fontSize: '14px'}}>{label}</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-control"
+                                            style={{flex: 1}}
+                                            value={(formData.defaultPrices || {})[key] || ''}
+                                            onChange={e => setFormData({
+                                                ...formData,
+                                                defaultPrices: {
+                                                    ...(formData.defaultPrices || {}),
+                                                    [key]: parseFloat(e.target.value)
+                                                },
+                                                defaultPricePerKg: key === 'rabbit' ? parseFloat(e.target.value) : formData.defaultPricePerKg
+                                            })}
+                                            required
+                                            min="0"
+                                        />
+                                    </div>
+                                ))}
                             </div>
 
                             <div className="form-group">
