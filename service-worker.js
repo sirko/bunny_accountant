@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rabbit-sales-v1';
+const CACHE_NAME = 'rabbit-sales-v2';
 const urlsToCache = [
   './rabbit-sales-app.html',
   './manifest.json',
@@ -9,7 +9,7 @@ const urlsToCache = [
   'https://cdn.jsdelivr.net/npm/date-fns@3.0.0/index.min.js'
 ];
 
-// Install event - cache resources
+// Install event - cache resources and activate immediately
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -18,24 +18,43 @@ self.addEventListener('install', event => {
         return cache.addAll(urlsToCache);
       })
   );
+  self.skipWaiting();
 });
 
-// Fetch event - serve from cache when offline
+// Fetch event - network-first for HTML, cache-first for other resources
 self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        // Cache hit - return response
-        if (response) {
+  const url = new URL(event.request.url);
+  const isHTML = event.request.destination === 'document' ||
+    url.pathname.endsWith('.html');
+
+  if (isHTML) {
+    // Network-first for HTML - always get latest version
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(event.request, responseClone);
+          });
           return response;
-        }
-        return fetch(event.request);
-      }
-    )
-  );
+        })
+        .catch(() => caches.match(event.request))
+    );
+  } else {
+    // Cache-first for static assets (JS libs, icons, etc.)
+    event.respondWith(
+      caches.match(event.request)
+        .then(response => {
+          if (response) {
+            return response;
+          }
+          return fetch(event.request);
+        })
+    );
+  }
 });
 
-// Activate event - clean up old caches
+// Activate event - clean up old caches and take control immediately
 self.addEventListener('activate', event => {
   const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
@@ -47,6 +66,6 @@ self.addEventListener('activate', event => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
