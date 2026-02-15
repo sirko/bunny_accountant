@@ -40,14 +40,14 @@
         async function initializeGapiClient(suppressWarning = false) {
             const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
             const apiKey = apiConfig.apiKey;
-            
+
             if (!apiKey) {
                 if (!suppressWarning && !isInitialLoad) {
                     console.warn('Google API key not configured. Please set it in Settings.');
                 }
                 return;
             }
-            
+
             try {
                 await gapi.client.init({
                     apiKey: apiKey,
@@ -64,14 +64,14 @@
         window.gisLoaded = function() {
             const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
             const clientId = apiConfig.clientId;
-            
+
             if (!clientId) {
                 if (!isInitialLoad) {
                     console.warn('Google Client ID not configured. Please set it in Settings.');
                 }
                 return;
             }
-            
+
             try {
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: clientId,
@@ -100,7 +100,7 @@
                 console.error('Token client not initialized');
                 return Promise.reject('Token client not initialized');
             }
-            
+
             return new Promise((resolve, reject) => {
                 // Check if we already have a valid token
                 if (gapi.client && gapi.client.getToken()) {
@@ -110,7 +110,7 @@
                         const now = Date.now();
                         const expiresIn = token.expires_in ? token.expires_in * 1000 : 3600000; // Default 1 hour
                         const tokenTime = token.issued_at || now;
-                        
+
                         if (now - tokenTime < expiresIn) {
                             accessToken = token.access_token;
                             resolve(token);
@@ -118,7 +118,7 @@
                         }
                     }
                 }
-                
+
                 // Set up callback with timeout to handle cases where COOP blocks the response
                 let callbackReceived = false;
                 const timeout = setTimeout(() => {
@@ -128,11 +128,11 @@
                         // The callback might arrive later
                     }
                 }, 30000); // 30 second timeout
-                
+
                 tokenClient.callback = (tokenResponse) => {
                     callbackReceived = true;
                     clearTimeout(timeout);
-                    
+
                     if (tokenResponse.error) {
                         // Handle specific error codes
                         let errorMsg = tokenResponse.error;
@@ -149,7 +149,7 @@
                         reject(errorMsg);
                         return;
                     }
-                    
+
                     // Success - we got the token
                     accessToken = tokenResponse.access_token;
                     if (gapi.client) {
@@ -158,7 +158,7 @@
                     console.log('✅ OAuth token received successfully');
                     resolve(tokenResponse);
                 };
-                
+
                 // Request token
                 // Note: COOP warnings in console are usually harmless and don't prevent OAuth from working
                 // The warning appears because Google's code uses window.opener, but the OAuth flow still works
@@ -205,11 +205,11 @@
                 }
 
                 console.log('✅ Got OAuth token, opening file picker...');
-                
+
                 const pickerBuilder = new google.picker.PickerBuilder()
                     .addView(google.picker.ViewId.SPREADSHEETS)
                     .setOAuthToken(accessToken);
-                
+
                 // API Key is optional if OAuth token is provided
                 // We're intentionally NOT using API Key here - OAuth token is sufficient
                 // This avoids "API developer key is invalid" errors
@@ -232,12 +232,12 @@
                             console.log('✅ File picker loaded successfully');
                         } else {
                             console.log('Picker action:', data[google.picker.Response.ACTION]);
-                            
+
                             // Check for errors in the response
                             if (data[google.picker.Response.ERROR]) {
                                 const error = data[google.picker.Response.ERROR];
                                 console.error('❌ Picker error:', error);
-                                
+
                                 // If API Key error and we were using API Key, try without it
                                 if ((error === 'developerKeyInvalid' || error.includes('developer key') || error.includes('API key')) && useApiKey) {
                                     console.warn('⚠️ API Key error detected, retrying without API Key...');
@@ -245,7 +245,7 @@
                                     setTimeout(() => openPicker(false), 500);
                                     return;
                                 }
-                                
+
                                 if (error === 'developerKeyInvalid' || error.includes('developer key') || error.includes('API key')) {
                                     alert(
                                         'Помилка: API Key недійсний.\n\n' +
@@ -262,20 +262,20 @@
                         }
                     })
                     .build();
-                    
+
                     try {
                         picker.setVisible(true);
                         console.log('✅ File picker opened' + (useApiKey ? ' with API Key' : ' without API Key (OAuth only)'));
                     } catch (error) {
                         console.error('Error opening file picker:', error);
-                        
+
                         // If API Key error and we were using API Key, try without it
                         if (error.message && (error.message.includes('developer key') || error.message.includes('API key')) && useApiKey) {
                             console.warn('⚠️ API Key error detected, retrying without API Key...');
                             setTimeout(() => openPicker(false), 500);
                             return;
                         }
-                        
+
                         if (error.message && (error.message.includes('developer key') || error.message.includes('API key'))) {
                             alert(
                                 'Помилка: API Key недійсний.\n\n' +
@@ -290,7 +290,7 @@
                         }
                     }
                 };
-                
+
                 // Always start WITHOUT API Key - OAuth token should be sufficient
                 // Google Picker works fine with just OAuth token
                 console.log('ℹ️ Opening file picker without API Key (OAuth token should be sufficient)');
@@ -298,11 +298,11 @@
             }).catch((error) => {
                 console.error('Failed to get OAuth token:', error);
                 let errorMessage = 'Помилка авторизації. ';
-                
+
                 const errorStr = typeof error === 'string' ? error : (error.message || String(error));
-                
+
                 const currentOrigin = window.location.origin;
-                
+
                 if (errorStr.includes('redirect_uri_mismatch') || errorStr.includes('redirect_uri')) {
                     errorMessage += '\n\nПомилка: redirect_uri_mismatch\n\n' +
                         'Для виправлення:\n' +
@@ -310,16 +310,16 @@
                         '2. Виберіть ваш OAuth 2.0 Client ID\n' +
                         '3. У розділі "Authorized JavaScript origins" додайте:\n' +
                         '   - ' + currentOrigin + '\n';
-                    
+
                     if (currentOrigin.includes('github.io')) {
                         errorMessage += '   - http://localhost (для локального тестування)\n';
                     } else if (currentOrigin.includes('localhost')) {
                         errorMessage += '   - https://sirko.github.io (якщо використовуєте GitHub Pages)\n';
                     }
-                    
+
                     errorMessage += '4. У розділі "Authorized redirect URIs" додайте:\n' +
                         '   - ' + currentOrigin + '\n';
-                    
+
                     if (currentOrigin.includes('github.io')) {
                         errorMessage += '\nПоточний URL: ' + currentOrigin + '\n' +
                             'Переконайтеся, що цей URL додано до OAuth налаштувань.';
@@ -330,7 +330,7 @@
                     }
                 } else if (errorStr.includes('Cross-Origin') || errorStr.includes('COOP') || errorStr.includes('opener')) {
                     errorMessage += '\n\nПомилка: Cross-Origin-Opener-Policy\n\n';
-                    
+
                     if (window.location.protocol === 'file:') {
                         errorMessage += 'Це означає, що ви відкриваєте файл напряму (file://).\n\n' +
                             'РІШЕННЯ:\n' +
@@ -351,7 +351,7 @@
                             'Переконайтеся, що цей URL додано до OAuth налаштувань.';
                     }
                 }
-                
+
                 alert(errorMessage);
             });
         };
@@ -435,18 +435,18 @@
 
                 // Check if headers already exist in Sales sheet
                 // Sales headers now include ID column
-                const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID']];
+                const salesHeaders = [['Дата', 'Вага (кг)', 'Ціна за кг (₴)', 'Загальна сума (₴)', 'Клієнт', 'Телефон', 'ID', 'Статус']];
                 try {
                     const salesResponse = await gapi.client.sheets.spreadsheets.values.get({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A1:G1',
+                        range: 'Sales!A1:H1',
                     });
                     if (salesResponse.result.values && salesResponse.result.values.length > 0) {
                         // Check if ID column exists, if not - update headers
-                        if (salesResponse.result.values[0].length < 7) {
+                        if (salesResponse.result.values[0].length < 8) {
                             await gapi.client.sheets.spreadsheets.values.update({
                                 spreadsheetId: spreadsheetId,
-                                range: 'Sales!A1:G1',
+                                range: 'Sales!A1:H1',
                                 valueInputOption: 'RAW',
                                 resource: { values: salesHeaders }
                             });
@@ -455,7 +455,7 @@
                         // Add headers to Sales sheet
                         await gapi.client.sheets.spreadsheets.values.update({
                             spreadsheetId: spreadsheetId,
-                            range: 'Sales!A1:G1',
+                            range: 'Sales!A1:H1',
                             valueInputOption: 'RAW',
                             resource: { values: salesHeaders }
                         });
@@ -464,7 +464,7 @@
                     // Sheet might be empty, add headers
                     await gapi.client.sheets.spreadsheets.values.update({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A1:G1',
+                        range: 'Sales!A1:H1',
                         valueInputOption: 'RAW',
                         resource: { values: salesHeaders }
                     });
@@ -516,7 +516,7 @@
                 try {
                     const response = await gapi.client.sheets.spreadsheets.values.get({
                         spreadsheetId: spreadsheetId,
-                        range: 'Sales!A2:G1000',
+                        range: 'Sales!A2:H1000',
                     });
                     existingRows = response.result.values || [];
                 } catch (e) {
@@ -559,6 +559,7 @@
                             pricePerKg: parseFloat(row[2]) || 0,
                             totalAmount: parseFloat(row[3]) || 0,
                             customerId: customer ? customer.id : null,
+                            status: row[7] || 'active',
                             _fromSpreadsheet: true
                         });
                     }
@@ -587,13 +588,14 @@
                         sale.totalAmount || '',
                         customer ? customer.name : 'Невідомо',
                         customer ? customer.phone : '',
-                        sale.id || ''
+                        sale.id || '',
+                        sale.status || 'active'
                     ];
 
                     if (sale.id && spreadsheetRowsById[sale.id]) {
                         // Update existing row
                         const rowIndex = spreadsheetRowsById[sale.id].rowIndex;
-                        rowsToUpdate.push({ range: `Sales!A${rowIndex}:G${rowIndex}`, values: [rowData] });
+                        rowsToUpdate.push({ range: `Sales!A${rowIndex}:H${rowIndex}`, values: [rowData] });
                     } else {
                         // New sale - append to spreadsheet
                         rowsToAppend.push(rowData);
@@ -818,7 +820,7 @@
 
             const sales = JSON.parse(localStorage.getItem('rabbitSales') || '[]');
             const customers = JSON.parse(localStorage.getItem('rabbitCustomers') || '[]');
-            
+
             try {
                 await window.syncToGoogleSheets(settings.spreadsheetId, sales, customers);
             } catch (error) {
@@ -831,28 +833,28 @@
         window.reinitializeGoogleAPI = function() {
             console.log('🔄 Reinitializing Google API with saved credentials...');
             const apiConfig = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
-            console.log('📋 Loaded API config from localStorage:', { 
-                hasApiKey: !!apiConfig.apiKey, 
+            console.log('📋 Loaded API config from localStorage:', {
+                hasApiKey: !!apiConfig.apiKey,
                 hasClientId: !!apiConfig.clientId,
                 apiKeyLength: apiConfig.apiKey ? apiConfig.apiKey.length : 0,
                 clientIdLength: apiConfig.clientId ? apiConfig.clientId.length : 0
             });
-            
+
             // Only require Client ID - API Key is optional
             if (!apiConfig.clientId) {
                 console.warn('⚠️ Client ID not found in localStorage. Please save it first.');
                 return;
             }
-            
+
             // Warn if API Key is missing, but continue anyway
             if (!apiConfig.apiKey || !apiConfig.apiKey.trim()) {
                 console.log('ℹ️ API Key not configured (optional - OAuth token should be sufficient)');
             }
-            
+
             gapiInited = false;
             gisInited = false;
             isInitialLoad = false; // This is a reinitialization, not initial load
-            
+
             // Reinitialize gapi client
             if (typeof gapi !== 'undefined') {
                 if (gapi.client && gapi.client.getToken) {
@@ -866,7 +868,7 @@
             } else {
                 console.warn('⚠️ gapi is not available. Google API script may not have loaded.');
             }
-            
+
             // Reinitialize gis client
             if (typeof google !== 'undefined' && google.accounts) {
                 window.gisLoaded();
@@ -1432,7 +1434,8 @@
                             weight: 3.5,
                             pricePerKg: 150,
                             totalAmount: 525,
-                            customerId: '1'
+                            customerId: '1',
+                            status: 'active'
                         },
                         {
                             id: '2',
@@ -1440,7 +1443,8 @@
                             weight: 4.2,
                             pricePerKg: 160,
                             totalAmount: 672,
-                            customerId: '2'
+                            customerId: '2',
+                            status: 'active'
                         }
                     ];
                     setSales(sampleSales);
@@ -1571,7 +1575,8 @@
                 const newSale = {
                     ...saleData,
                     id: Date.now().toString(),
-                    totalAmount: saleData.weight * saleData.pricePerKg
+                    totalAmount: saleData.weight * saleData.pricePerKg,
+                    status: 'active'
                 };
                 setSales([...sales, newSale]);
                 showAlert('Продаж успішно додано!');
@@ -1591,7 +1596,7 @@
             };
 
             const updateCustomer = (customerData) => {
-                setCustomers(customers.map(c => 
+                setCustomers(customers.map(c =>
                     c.id === customerData.id ? customerData : c
                 ));
                 showAlert('Клієнта успішно оновлено!');
@@ -1616,6 +1621,21 @@
                 if (confirm('Ви впевнені, що хочете видалити цей продаж?')) {
                     setSales(sales.filter(s => s.id !== saleId));
                     showAlert('Продаж успішно видалено!');
+                }
+            };
+
+            const toggleSaleStatus = (saleId) => {
+                setSales(sales.map(s =>
+                    s.id === saleId ? { ...s, status: s.status === 'done' ? 'active' : 'done' } : s
+                ));
+            };
+
+            const markCustomerSalesDone = (saleIds) => {
+                if (confirm('Позначити замовлення як доставлені?')) {
+                    setSales(sales.map(s =>
+                        saleIds.includes(s.id) ? { ...s, status: 'done' } : s
+                    ));
+                    showAlert('Замовлення успішно виконане!');
                 }
             };
 
@@ -1685,11 +1705,13 @@
                             setCustomDateRange={setCustomDateRange}
                             onAddSale={() => setShowSaleModal(true)}
                             onDeleteSale={deleteSale}
+                            onToggleStatus={toggleSaleStatus}
+                            onMarkCustomerDone={markCustomerSalesDone}
                         />
                     )}
 
                     {currentScreen === 'customers' && (
-                        <Customers 
+                        <Customers
                             customers={customers}
                             onAddCustomer={() => {
                                 setEditingCustomer(null);
@@ -1704,7 +1726,7 @@
                     )}
 
                     {currentScreen === 'settings' && (
-                        <Settings 
+                        <Settings
                             settings={settings}
                             apiConfig={apiConfig}
                             onSave={(newSettings) => {
@@ -1712,9 +1734,9 @@
                                 showAlert('Налаштування збережено!');
                             }}
                             onSaveApiConfig={(newApiConfig) => {
-                                console.log('💾 Saving API config:', { 
-                                    hasApiKey: !!newApiConfig.apiKey, 
-                                    hasClientId: !!newApiConfig.clientId 
+                                console.log('💾 Saving API config:', {
+                                    hasApiKey: !!newApiConfig.apiKey,
+                                    hasClientId: !!newApiConfig.clientId
                                 });
                                 setApiConfig(newApiConfig);
                                 showAlert('API конфігурацію збережено!');
@@ -1722,9 +1744,9 @@
                                 setTimeout(() => {
                                     // Verify it was saved to localStorage
                                     const saved = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
-                                    console.log('✅ Verified saved to localStorage:', { 
-                                        hasApiKey: !!saved.apiKey, 
-                                        hasClientId: !!saved.clientId 
+                                    console.log('✅ Verified saved to localStorage:', {
+                                        hasApiKey: !!saved.apiKey,
+                                        hasClientId: !!saved.clientId
                                     });
                                     if (typeof window.reinitializeGoogleAPI === 'function') {
                                         window.reinitializeGoogleAPI();
@@ -1737,7 +1759,7 @@
                     )}
 
                     {showSaleModal && (
-                        <SaleModal 
+                        <SaleModal
                             customers={customers}
                             defaultPrice={settings.defaultPricePerKg}
                             onClose={() => setShowSaleModal(false)}
@@ -1749,7 +1771,7 @@
                     )}
 
                     {showCustomerModal && (
-                        <CustomerModal 
+                        <CustomerModal
                             customer={editingCustomer}
                             onClose={() => {
                                 setShowCustomerModal(false);
@@ -1759,7 +1781,7 @@
                         />
                     )}
 
-                    <BottomNav 
+                    <BottomNav
                         currentScreen={currentScreen}
                         onNavigate={setCurrentScreen}
                     />
@@ -1768,7 +1790,7 @@
         }
 
         // Dashboard Component
-        function Dashboard({ sales, allSales, customers, dateFilter, setDateFilter, customDateRange, setCustomDateRange, onAddSale, onDeleteSale }) {
+        function Dashboard({ sales, allSales, customers, dateFilter, setDateFilter, customDateRange, setCustomDateRange, onAddSale, onDeleteSale, onToggleStatus, onMarkCustomerDone }) {
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
 
@@ -1776,17 +1798,16 @@
             const totalWeight = sales.reduce((sum, sale) => sum + (Number(sale.weight) || 0), 0);
             const avgPricePerKg = totalWeight > 0 ? totalRevenue / totalWeight : 0;
 
-            // Today's orders
-            const today = new Date().toISOString().split('T')[0];
-            const todaySales = allSales.filter(sale => sale.date === today);
-            const todayOrdersByCustomer = {};
-            todaySales.forEach(sale => {
+            // Active orders (not marked as done)
+            const activeSales = allSales.filter(sale => sale.status !== 'done');
+            const activeOrdersByCustomer = {};
+            activeSales.forEach(sale => {
                 const customerId = sale.customerId || 'unknown';
-                if (!todayOrdersByCustomer[customerId]) {
-                    todayOrdersByCustomer[customerId] = { total: 0, sales: [] };
+                if (!activeOrdersByCustomer[customerId]) {
+                    activeOrdersByCustomer[customerId] = { total: 0, sales: [] };
                 }
-                todayOrdersByCustomer[customerId].total += Number(sale.totalAmount) || 0;
-                todayOrdersByCustomer[customerId].sales.push(sale);
+                activeOrdersByCustomer[customerId].total += Number(sale.totalAmount) || 0;
+                activeOrdersByCustomer[customerId].sales.push(sale);
             });
 
             // Prepare chart data
@@ -1855,11 +1876,11 @@
                         ➕ Додати продаж
                     </button>
 
-                    {todaySales.length > 0 && (
+                    {activeSales.length > 0 && (
                         <div className="card" style={{marginBottom: '20px'}}>
-                            <h2 className="card-title">Замовлення сьогодні</h2>
+                            <h2 className="card-title">Активні замовлення</h2>
                             <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
-                                {Object.entries(todayOrdersByCustomer).map(([customerId, data]) => {
+                                {Object.entries(activeOrdersByCustomer).map(([customerId, data]) => {
                                     const customer = customers.find(c => c.id === customerId);
                                     return (
                                         <div key={customerId} style={{
@@ -1886,8 +1907,26 @@
                                                         </a>
                                                     )}
                                                 </div>
-                                                <div style={{fontWeight: '700', fontSize: '20px', color: '#4CAF50'}}>
-                                                    {formatCurrency(data.total)}
+                                                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                                    <div style={{fontWeight: '700', fontSize: '20px', color: '#4CAF50'}}>
+                                                        {formatCurrency(data.total)}
+                                                    </div>
+                                                    <button
+                                                        onClick={() => onMarkCustomerDone(data.sales.map(s => s.id))}
+                                                        title="Все виконано"
+                                                        style={{
+                                                            background: '#4CAF50',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '6px',
+                                                            padding: '8px 14px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '14px',
+                                                            fontWeight: '600'
+                                                        }}
+                                                    >
+                                                        Доставлено
+                                                    </button>
                                                 </div>
                                             </div>
                                             {/* Individual sales */}
@@ -1901,9 +1940,10 @@
                                                         borderBottom: '1px solid #eee'
                                                     }}>
                                                         <div style={{fontSize: '14px', color: '#666'}}>
+                                                            <span style={{color: '#999', marginRight: '6px'}}>{sale.date}</span>
                                                             {sale.weight} кг × {formatCurrency(sale.pricePerKg)}
                                                         </div>
-                                                        <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                                        <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
                                                             <div style={{fontWeight: '600', color: '#333'}}>
                                                                 {formatCurrency(sale.totalAmount)}
                                                             </div>
@@ -1933,25 +1973,25 @@
                     )}
 
                     <div className="date-filter">
-                        <button 
+                        <button
                             className={dateFilter === 'currentYear' ? 'active' : ''}
                             onClick={() => setDateFilter('currentYear')}
                         >
                             Поточний рік
                         </button>
-                        <button 
+                        <button
                             className={dateFilter === 'currentMonth' ? 'active' : ''}
                             onClick={() => setDateFilter('currentMonth')}
                         >
                             Поточний місяць
                         </button>
-                        <button 
+                        <button
                             className={dateFilter === 'currentQuarter' ? 'active' : ''}
                             onClick={() => setDateFilter('currentQuarter')}
                         >
                             Поточний квартал
                         </button>
-                        <button 
+                        <button
                             className={dateFilter === 'custom' ? 'active' : ''}
                             onClick={() => setDateFilter('custom')}
                         >
@@ -1961,13 +2001,13 @@
 
                     {dateFilter === 'custom' && (
                         <div className="custom-date-range">
-                            <input 
+                            <input
                                 type="date"
                                 className="form-control"
                                 value={customDateRange.start}
                                 onChange={(e) => setCustomDateRange({...customDateRange, start: e.target.value})}
                             />
-                            <input 
+                            <input
                                 type="date"
                                 className="form-control"
                                 value={customDateRange.end}
@@ -2074,7 +2114,7 @@
             const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
             const [newCustomer, setNewCustomer] = useState({ name: '', phone: '' });
 
-            const totalAmount = formData.weight && formData.pricePerKg 
+            const totalAmount = formData.weight && formData.pricePerKg
                 ? (parseFloat(formData.weight) * parseFloat(formData.pricePerKg)).toFixed(2)
                 : 0;
 
@@ -2110,7 +2150,7 @@
                         <form onSubmit={handleSubmit}>
                             <div className="form-group">
                                 <label className="form-label">Дата реалізації</label>
-                                <input 
+                                <input
                                     type="date"
                                     className="form-control"
                                     value={formData.date}
@@ -2121,7 +2161,7 @@
 
                             <div className="form-group">
                                 <label className="form-label">Вага (кг)</label>
-                                <input 
+                                <input
                                     type="number"
                                     step="0.001"
                                     className="form-control"
@@ -2134,7 +2174,7 @@
 
                             <div className="form-group">
                                 <label className="form-label">Ціна за кілограм (₴)</label>
-                                <input 
+                                <input
                                     type="number"
                                     step="0.01"
                                     className="form-control"
@@ -2148,7 +2188,7 @@
                             <div className="form-group">
                                 <label className="form-label">Клієнт</label>
                                 <div className="select-wrapper">
-                                    <select 
+                                    <select
                                         className="form-control"
                                         value={formData.customerId}
                                         onChange={e => setFormData({...formData, customerId: e.target.value})}
@@ -2162,7 +2202,7 @@
                                         ))}
                                     </select>
                                 </div>
-                                <button 
+                                <button
                                     type="button"
                                     className="btn btn-secondary btn-small"
                                     style={{marginTop: '8px'}}
@@ -2176,7 +2216,7 @@
                                 <div className="inline-customer-form">
                                     <div className="form-group">
                                         <label className="form-label">Ім'я клієнта</label>
-                                        <input 
+                                        <input
                                             type="text"
                                             className="form-control"
                                             value={newCustomer.name}
@@ -2185,7 +2225,7 @@
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">Телефон</label>
-                                        <input 
+                                        <input
                                             type="tel"
                                             className="form-control"
                                             value={newCustomer.phone}
@@ -2193,7 +2233,7 @@
                                             placeholder="+380XXXXXXXXX"
                                         />
                                     </div>
-                                    <button 
+                                    <button
                                         type="button"
                                         className="btn btn-success btn-small"
                                         onClick={handleAddNewCustomer}
@@ -2252,7 +2292,7 @@
                         <form onSubmit={handleSubmit}>
                             <div className="form-group">
                                 <label className="form-label">Ім'я клієнта</label>
-                                <input 
+                                <input
                                     type="text"
                                     className="form-control"
                                     value={formData.name}
@@ -2263,7 +2303,7 @@
 
                             <div className="form-group">
                                 <label className="form-label">Телефон</label>
-                                <input 
+                                <input
                                     type="tel"
                                     className="form-control"
                                     value={formData.phone}
@@ -2302,7 +2342,7 @@
                         ➕ Додати клієнта
                     </button>
 
-                    <input 
+                    <input
                         type="text"
                         className="search-box"
                         placeholder="🔍 Пошук клієнта..."
@@ -2324,13 +2364,13 @@
                                         <div className="customer-phone">{customer.phone}</div>
                                     </div>
                                     <div className="customer-actions">
-                                        <button 
+                                        <button
                                             className="btn btn-primary btn-small"
                                             onClick={() => onEditCustomer(customer)}
                                         >
                                             ✏️
                                         </button>
-                                        <button 
+                                        <button
                                             className="btn btn-danger btn-small"
                                             onClick={() => onDeleteCustomer(customer.id)}
                                         >
@@ -2376,26 +2416,26 @@
                     e.preventDefault();
                     e.stopPropagation(); // Prevent event from bubbling to parent form
                 }
-                
+
                 console.log('📝 Saving API config with apiFormData:', apiFormData);
-                console.log('📝 Values being saved:', { 
-                    apiKey: apiFormData.apiKey, 
+                console.log('📝 Values being saved:', {
+                    apiKey: apiFormData.apiKey,
                     clientId: apiFormData.clientId,
                     apiKeyLength: apiFormData.apiKey ? apiFormData.apiKey.length : 0,
                     clientIdLength: apiFormData.clientId ? apiFormData.clientId.length : 0
                 });
-                
+
                 // Verify we have Client ID (required)
                 if (!apiFormData.clientId || !apiFormData.clientId.trim()) {
                     alert('Будь ласка, введіть Client ID (обов\'язково)');
                     return;
                 }
-                
+
                 // API Key is optional, but warn if missing
                 if (!apiFormData.apiKey || !apiFormData.apiKey.trim()) {
                     console.warn('API Key не вказано - це може призвести до помилок при використанні Google Picker');
                 }
-                
+
                 // Save DIRECTLY to localStorage immediately (synchronously)
                 // This ensures it's saved even if there's a page refresh or state update delay
                 try {
@@ -2403,7 +2443,7 @@
                     const dataToSave = {
                         clientId: apiFormData.clientId.trim()
                     };
-                    
+
                     // Only add API Key if it's provided and not empty
                     if (apiFormData.apiKey && apiFormData.apiKey.trim()) {
                         dataToSave.apiKey = apiFormData.apiKey.trim();
@@ -2411,26 +2451,26 @@
                         // Explicitly set to empty string to clear any previous value
                         dataToSave.apiKey = '';
                     }
-                    
+
                     localStorage.setItem('googleApiConfig', JSON.stringify(dataToSave));
                     console.log('✅ Saved DIRECTLY to localStorage:', dataToSave);
-                    
+
                     // Verify it was saved immediately
                     const saved = JSON.parse(localStorage.getItem('googleApiConfig') || '{}');
-                    console.log('✅ Verified in localStorage:', { 
-                        hasApiKey: !!saved.apiKey && saved.apiKey.length > 0, 
+                    console.log('✅ Verified in localStorage:', {
+                        hasApiKey: !!saved.apiKey && saved.apiKey.length > 0,
                         hasClientId: !!saved.clientId,
                         apiKeyLength: saved.apiKey ? saved.apiKey.length : 0,
                         clientIdLength: saved.clientId ? saved.clientId.length : 0
                     });
-                    
+
                     // Only require Client ID - API Key is optional
                     if (!saved.clientId) {
                         console.error('❌ Client ID not saved correctly to localStorage!');
                         alert('Помилка збереження Client ID. Спробуйте ще раз.');
                         return;
                     }
-                    
+
                     // Log if API Key was intentionally omitted
                     if (!saved.apiKey || saved.apiKey === '') {
                         console.log('ℹ️ API Key not saved (optional - OAuth token should be sufficient)');
@@ -2440,12 +2480,12 @@
                     alert('Помилка збереження. Спробуйте ще раз.');
                     return;
                 }
-                
+
                 // Also update state (for React to reflect the change)
                 // This happens after localStorage is already saved
                 onSaveApiConfig(apiFormData);
                 setShowApiConfig(false);
-                
+
                 // Reinitialize Google API after a brief delay
                 setTimeout(() => {
                     if (typeof window.reinitializeGoogleAPI === 'function') {
@@ -2460,7 +2500,7 @@
                     alert('Спочатку налаштуйте Client ID в налаштуваннях Google API.\n\nAPI Key є опціональним, але рекомендується для кращої роботи.');
                     return;
                 }
-                
+
                 // API Key is optional - OAuth token should be sufficient
                 // But if provided, it must be valid
                 if (apiFormData.apiKey && apiFormData.apiKey.trim()) {
@@ -2483,7 +2523,7 @@
                     // No API Key - that's OK, OAuth should be sufficient
                     console.log('ℹ️ No API Key provided - will use OAuth token only');
                 }
-                
+
                 // Check if running from file:// protocol
                 if (window.location.protocol === 'file:') {
                     alert(
@@ -2502,11 +2542,11 @@
                     );
                     return;
                 }
-                
+
                 // Check origin and provide appropriate guidance
                 const origin = window.location.origin;
                 const hostname = window.location.hostname;
-                
+
                 if (hostname === 'localhost' || hostname === '127.0.0.1') {
                     // Localhost - check if origins are configured
                     console.log('Running from localhost. Make sure http://localhost is in OAuth origins.');
@@ -2519,15 +2559,15 @@
                     console.log('Running from:', origin);
                     console.log('Make sure', origin, 'is added to OAuth Authorized JavaScript origins');
                 }
-                
+
                 // Ensure Google API is initialized
                 if (typeof window.reinitializeGoogleAPI === 'function') {
                     window.reinitializeGoogleAPI();
                 }
-                
+
                 // Wait a bit for initialization
                 await new Promise(resolve => setTimeout(resolve, 500));
-                
+
                 // Open Google Drive file picker
                 if (typeof window.openGoogleDrivePicker === 'function') {
                     window.openGoogleDrivePicker(
@@ -2542,7 +2582,7 @@
                                 isConnected: true
                             };
                             onSave(newSettings);
-                            
+
                             // Sync existing data immediately
                             setTimeout(async () => {
                                 const sales = JSON.parse(localStorage.getItem('rabbitSales') || '[]');
@@ -2551,7 +2591,7 @@
                                     await window.syncToGoogleSheets(spreadsheetId, sales, customers);
                                 }
                             }, 1000);
-                            
+
                             alert(`Таблицю "${spreadsheetName}" успішно підключено! Дані будуть синхронізовані автоматично.`);
                         }
                     );
@@ -2567,7 +2607,7 @@
                         <form onSubmit={handleSubmit}>
                             <div className="form-group">
                                 <label className="form-label">Ціна за кілограм за замовчуванням (₴)</label>
-                                <input 
+                                <input
                                     type="number"
                                     step="0.01"
                                     className="form-control"
@@ -2587,7 +2627,7 @@
                                             Таблиця: {formData.spreadsheetName}
                                         </div>
                                         <div style={{display: 'flex', gap: '8px', marginTop: '8px'}}>
-                                            <button 
+                                            <button
                                                 type="button"
                                                 className="btn btn-primary btn-small"
                                                 onClick={async () => {
@@ -2603,7 +2643,7 @@
                                             >
                                                 🔄 Синхронізувати зараз
                                             </button>
-                                            <button 
+                                            <button
                                                 type="button"
                                                 className="btn btn-danger btn-small"
                                                 onClick={() => {
@@ -2643,10 +2683,10 @@
                                         </button>
                                     </div>
                                 )}
-                                
+
                                 {!showApiConfig ? (
                                     <>
-                                        <button 
+                                        <button
                                             type="button"
                                             className="google-btn"
                                             onClick={handleConnectGoogle}
@@ -2660,7 +2700,7 @@
                                             </svg>
                                             {formData.isConnected ? 'Змінити таблицю' : 'Підключити Google Sheets'}
                                         </button>
-                                        <button 
+                                        <button
                                             type="button"
                                             className="btn btn-secondary btn-small"
                                             onClick={() => {
@@ -2682,7 +2722,7 @@
                                     }}>
                                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
                                             <strong>Налаштування Google API</strong>
-                                            <button 
+                                            <button
                                                 type="button"
                                                 className="close-btn"
                                                 onClick={() => setShowApiConfig(false)}
@@ -2695,19 +2735,19 @@
                                                 <label className="form-label">
                                                     API Key <span style={{color: '#757575', fontSize: '12px'}}>(опціонально - OAuth token має бути достатнім)</span>
                                                 </label>
-                                                <input 
+                                                <input
                                                     type="text"
                                                     className="form-control"
                                                     value={apiFormData.apiKey || ''}
                                                     onChange={e => {
                                                         const newValue = e.target.value;
                                                         console.log('🔑 API Key changed, new value length:', newValue.length);
-                                                        
+
                                                         // Warn if key seems too short
                                                         if (newValue.trim().length > 0 && newValue.trim().length < 30) {
                                                             console.warn('⚠️ API Key seems too short. Valid keys are usually 39+ characters.');
                                                         }
-                                                        
+
                                                         setApiFormData({...apiFormData, apiKey: newValue});
                                                     }}
                                                     onKeyDown={e => {
@@ -2727,7 +2767,7 @@
                                             </div>
                                             <div className="form-group" style={{marginBottom: '12px'}}>
                                                 <label className="form-label">Client ID</label>
-                                                <input 
+                                                <input
                                                     type="text"
                                                     className="form-control"
                                                     value={apiFormData.clientId || ''}
@@ -2747,7 +2787,7 @@
                                                 />
                                             </div>
                                             <div style={{display: 'flex', gap: '8px'}}>
-                                                <button 
+                                                <button
                                                     type="button"
                                                     className="btn btn-secondary btn-small"
                                                     onClick={() => setShowApiConfig(false)}
@@ -2755,7 +2795,7 @@
                                                 >
                                                     Скасувати
                                                 </button>
-                                                <button 
+                                                <button
                                                     type="button"
                                                     className="btn btn-success btn-small"
                                                     onClick={handleApiConfigSubmit}
@@ -2792,10 +2832,10 @@
                                         </p>
                                     </div>
                                 )}
-                                
+
                                 <p style={{fontSize: '12px', color: '#757575', marginTop: '8px'}}>
-                                    {apiFormData.apiKey && apiFormData.clientId 
-                                        ? 'API ключі налаштовані' 
+                                    {apiFormData.apiKey && apiFormData.clientId
+                                        ? 'API ключі налаштовані'
                                         : 'Зараз дані зберігаються локально у вашому браузері'}
                                 </p>
                             </div>
@@ -2815,21 +2855,21 @@
         function BottomNav({ currentScreen, onNavigate }) {
             return (
                 <div className="bottom-nav">
-                    <button 
+                    <button
                         className={`nav-item ${currentScreen === 'dashboard' ? 'active' : ''}`}
                         onClick={() => onNavigate('dashboard')}
                     >
                         <div className="nav-icon">📊</div>
                         <div className="nav-label">Головна</div>
                     </button>
-                    <button 
+                    <button
                         className={`nav-item ${currentScreen === 'customers' ? 'active' : ''}`}
                         onClick={() => onNavigate('customers')}
                     >
                         <div className="nav-icon">👥</div>
                         <div className="nav-label">Клієнти</div>
                     </button>
-                    <button 
+                    <button
                         className={`nav-item ${currentScreen === 'settings' ? 'active' : ''}`}
                         onClick={() => onNavigate('settings')}
                     >
@@ -2850,7 +2890,7 @@
         if (window.location.protocol === 'file:') {
             console.warn('⚠️ Running from file:// protocol. Google OAuth will NOT work!');
             console.warn('Please run from localhost: python -m http.server 8000');
-            
+
             // Show warning after page loads
             window.addEventListener('load', () => {
                 setTimeout(() => {
@@ -2858,7 +2898,7 @@
                     warningDiv.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; background: #ff9800; color: white; padding: 12px; text-align: center; z-index: 10000; font-weight: bold;';
                     warningDiv.innerHTML = '⚠️ ВАЖЛИВО: Google OAuth не працює з file://. Запустіть через локальний сервер (python -m http.server 8000)';
                     document.body.insertBefore(warningDiv, document.body.firstChild);
-                    
+
                     // Auto-hide after 10 seconds
                     setTimeout(() => {
                         warningDiv.style.display = 'none';
